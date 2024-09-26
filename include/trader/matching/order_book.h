@@ -124,6 +124,8 @@ public:
         \return Pointer to the order book trailing sell stop level with the given price or nullptr
     */
     const LevelNode* GetTrailingSellStopLevel(uint64_t price) const noexcept;
+    
+    void dump() const;
 
 private:
     // Market manager

@@ -277,7 +277,7 @@ private:
     void ExecuteMatchingChain(OrderBook* order_book_ptr, LevelNode* level_ptr, uint64_t price, uint64_t volume);
     void RecalculateTrailingStopPrice(OrderBook* order_book_ptr, LevelNode* level_ptr);
 
-    void UpdateLevel(const OrderBook& order_book, const LevelUpdate& update) const;
+    void UpdateLevel(const OrderBook& order_book, const LevelUpdate& update, int symbol_id=0) const;
 };
 
 /*! \example market_manager.cpp Market manager example */

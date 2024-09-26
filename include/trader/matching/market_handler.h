@@ -49,7 +49,7 @@ protected:
 
     // Order book handlers
     virtual void onAddOrderBook(const OrderBook& order_book) {}
-    virtual void onUpdateOrderBook(const OrderBook& order_book, bool top) {}
+    virtual void onUpdateOrderBook(const OrderBook& order_book, bool top, int symbol_id) {}
     virtual void onDeleteOrderBook(const OrderBook& order_book) {}
 
     // Price level handlers

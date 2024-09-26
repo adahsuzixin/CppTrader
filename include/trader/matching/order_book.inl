@@ -59,6 +59,18 @@ inline const LevelNode* OrderBook::GetTrailingSellStopLevel(uint64_t price) cons
     return (it != _trailing_sell_stop.end()) ? it.operator->() : nullptr;
 }
 
+inline void OrderBook::dump() const
+{
+    std::cout << "Ask: ";
+    for (const auto &ask : _asks)
+        std::cout << ask.Price << " ";
+    std::cout << std::endl;
+    std::cout << "Bid: ";
+    for (const auto &bid : _bids)
+        std::cout << bid.Price << " ";
+    std::cout << std::endl;
+}
+
 inline LevelNode* OrderBook::GetNextLevel(LevelNode* level) noexcept
 {
     if (level->IsBid())

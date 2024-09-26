@@ -51,7 +51,7 @@ protected:
     void onAddSymbol(const Symbol& symbol) override { ++_updates; ++_symbols; _max_symbols = std::max(_symbols, _max_symbols); }
     void onDeleteSymbol(const Symbol& symbol) override { ++_updates; --_symbols; }
     void onAddOrderBook(const OrderBook& order_book) override { ++_updates; ++_order_books; _max_order_books = std::max(_order_books, _max_order_books); }
-    void onUpdateOrderBook(const OrderBook& order_book, bool top) override { _max_order_book_levels = std::max(std::max(order_book.bids().size(), order_book.asks().size()), _max_order_book_levels); }
+    void onUpdateOrderBook(const OrderBook& order_book, bool top, int symbol_id) override { _max_order_book_levels = std::max(std::max(order_book.bids().size(), order_book.asks().size()), _max_order_book_levels); }
     void onDeleteOrderBook(const OrderBook& order_book) override { ++_updates; --_order_books; }
     void onAddLevel(const OrderBook& order_book, const Level& level, bool top) override { ++_updates; }
     void onUpdateLevel(const OrderBook& order_book, const Level& level, bool top) override { ++_updates; _max_order_book_orders = std::max(level.Orders, _max_order_book_orders); }

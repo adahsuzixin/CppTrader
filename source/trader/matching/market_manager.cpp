@@ -221,7 +221,7 @@ ErrorCode MarketManager::AddLimitOrder(const Order& order, bool recursive)
         }
 
         // Add the new limit order into the order book
-        UpdateLevel(*order_book_ptr, order_book_ptr->AddOrder(order_ptr));
+        UpdateLevel(*order_book_ptr, order_book_ptr->AddOrder(order_ptr), order.SymbolId);
     }
     else
     {
@@ -1738,7 +1738,7 @@ void MarketManager::RecalculateTrailingStopPrice(OrderBook* order_book_ptr, Leve
     }
 }
 
-void MarketManager::UpdateLevel(const OrderBook& order_book, const LevelUpdate& update) const
+void MarketManager::UpdateLevel(const OrderBook& order_book, const LevelUpdate& update, int symbol_id) const
 {
     switch (update.Type)
     {
@@ -1755,7 +1755,7 @@ void MarketManager::UpdateLevel(const OrderBook& order_book, const LevelUpdate& 
             break;
     }
 
-    _market_handler.onUpdateOrderBook(order_book, update.Top);
+    _market_handler.onUpdateOrderBook(order_book, update.Top, symbol_id);
 }
 
 } // namespace Matching

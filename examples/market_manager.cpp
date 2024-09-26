@@ -26,7 +26,7 @@ protected:
 
     void onAddOrderBook(const OrderBook& order_book) override
     { std::cout << "Add order book: " << order_book << std::endl; }
-    void onUpdateOrderBook(const OrderBook& order_book, bool top) override
+    void onUpdateOrderBook(const OrderBook& order_book, bool top, int symbol_id) override
     { std::cout << "Update order book: " << order_book << (top ? " - Top of the book!" : "") << std::endl; }
     void onDeleteOrderBook(const OrderBook& order_book) override
     { std::cout << "Delete order book: " << order_book << std::endl; }

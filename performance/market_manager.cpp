@@ -33,7 +33,8 @@ public:
           _update_orders(0),
           _delete_orders(0),
           _execute_orders(0)
-    {}
+    {
+    }
 
     size_t updates() const { return _updates; }
     size_t max_symbols() const { return _max_symbols; }
@@ -47,18 +48,69 @@ public:
     size_t execute_orders() const { return _execute_orders; }
 
 protected:
-    void onAddSymbol(const Symbol& symbol) override { ++_updates; ++_symbols; _max_symbols = std::max(_symbols, _max_symbols); }
-    void onDeleteSymbol(const Symbol& symbol) override { ++_updates; --_symbols; }
-    void onAddOrderBook(const OrderBook& order_book) override { ++_updates; ++_order_books; _max_order_books = std::max(_order_books, _max_order_books); }
-    void onUpdateOrderBook(const OrderBook& order_book, bool top) override { _max_order_book_levels = std::max(std::max(order_book.bids().size(), order_book.asks().size()), _max_order_book_levels); }
-    void onDeleteOrderBook(const OrderBook& order_book) override { ++_updates; --_order_books; }
-    void onAddLevel(const OrderBook& order_book, const Level& level, bool top) override { ++_updates; }
-    void onUpdateLevel(const OrderBook& order_book, const Level& level, bool top) override { ++_updates; _max_order_book_orders = std::max(level.Orders, _max_order_book_orders); }
-    void onDeleteLevel(const OrderBook& order_book, const Level& level, bool top) override { ++_updates; }
-    void onAddOrder(const Order& order) override { ++_updates; ++_orders; _max_orders = std::max(_orders, _max_orders); ++_add_orders; }
-    void onUpdateOrder(const Order& order) override { ++_updates; ++_update_orders; }
-    void onDeleteOrder(const Order& order) override { ++_updates; --_orders; ++_delete_orders; }
-    void onExecuteOrder(const Order& order, uint64_t price, uint64_t quantity) override { ++_updates; ++_execute_orders; }
+    void onAddSymbol(const Symbol &symbol) override
+    {
+        ++_updates;
+        ++_symbols;
+        _max_symbols = std::max(_symbols, _max_symbols);
+        std::cout << "Symbol: " << symbol.Name << std::endl;
+    }
+    void onDeleteSymbol(const Symbol &symbol) override
+    {
+        ++_updates;
+        --_symbols;
+    }
+    void onAddOrderBook(const OrderBook &order_book) override
+    {
+        ++_updates;
+        ++_order_books;
+        _max_order_books = std::max(_order_books, _max_order_books);
+    }
+    void onUpdateOrderBook(const OrderBook &order_book, bool top, int symbol_id) override {
+        auto cur_max = std::max(order_book.bids().size(), order_book.asks().size());
+        if (cur_max > _max_order_book_levels)
+        {
+            _max_order_book_levels = cur_max;
+            _max_level_symbol = symbol_id;
+            std::cout << "Max level symbol: " << _max_level_symbol << " Max levels: " << _max_order_book_levels << std::endl;
+            order_book.dump();
+        }
+    }
+    void onDeleteOrderBook(const OrderBook &order_book) override
+    {
+        ++_updates;
+        --_order_books;
+    }
+    void onAddLevel(const OrderBook &order_book, const Level &level, bool top) override { ++_updates; }
+    void onUpdateLevel(const OrderBook &order_book, const Level &level, bool top) override
+    {
+        ++_updates;
+        _max_order_book_orders = std::max(level.Orders, _max_order_book_orders);
+    }
+    void onDeleteLevel(const OrderBook &order_book, const Level &level, bool top) override { ++_updates; }
+    void onAddOrder(const Order &order) override
+    {
+        ++_updates;
+        ++_orders;
+        _max_orders = std::max(_orders, _max_orders);
+        ++_add_orders;
+    }
+    void onUpdateOrder(const Order &order) override
+    {
+        ++_updates;
+        ++_update_orders;
+    }
+    void onDeleteOrder(const Order &order) override
+    {
+        ++_updates;
+        --_orders;
+        ++_delete_orders;
+    }
+    void onExecuteOrder(const Order &order, uint64_t price, uint64_t quantity) override
+    {
+        ++_updates;
+        ++_execute_orders;
+    }
 
 private:
     size_t _updates;
@@ -68,6 +120,7 @@ private:
     size_t _max_order_books;
     size_t _max_order_book_levels;
     size_t _max_order_book_orders;
+    size_t _max_level_symbol;
     size_t _orders;
     size_t _max_orders;
     size_t _add_orders;
@@ -79,46 +132,157 @@ private:
 class MyITCHHandler : public ITCHHandler
 {
 public:
-    MyITCHHandler(MarketManager& market)
+    MyITCHHandler(MarketManager &market)
         : _market(market),
           _messages(0),
           _errors(0)
-    {}
+    {
+    }
 
     size_t messages() const { return _messages; }
     size_t errors() const { return _errors; }
 
 protected:
-    bool onMessage(const SystemEventMessage& message) override { ++_messages; return true; }
-    bool onMessage(const StockDirectoryMessage& message) override { ++_messages; Symbol symbol(message.StockLocate, message.Stock); _market.AddSymbol(symbol); _market.AddOrderBook(symbol); return true; }
-    bool onMessage(const StockTradingActionMessage& message) override { ++_messages; return true; }
-    bool onMessage(const RegSHOMessage& message) override { ++_messages; return true; }
-    bool onMessage(const MarketParticipantPositionMessage& message) override { ++_messages; return true; }
-    bool onMessage(const MWCBDeclineMessage& message) override { ++_messages; return true; }
-    bool onMessage(const MWCBStatusMessage& message) override { ++_messages; return true; }
-    bool onMessage(const IPOQuotingMessage& message) override { ++_messages; return true; }
-    bool onMessage(const AddOrderMessage& message) override { ++_messages; _market.AddOrder(Order::Limit(message.OrderReferenceNumber, message.StockLocate, (message.BuySellIndicator == 'B') ? OrderSide::BUY : OrderSide::SELL, message.Price, message.Shares)); return true; }
-    bool onMessage(const AddOrderMPIDMessage& message) override { ++_messages; _market.AddOrder(Order::Limit(message.OrderReferenceNumber, message.StockLocate, (message.BuySellIndicator == 'B') ? OrderSide::BUY : OrderSide::SELL, message.Price, message.Shares)); return true; }
-    bool onMessage(const OrderExecutedMessage& message) override { ++_messages; _market.ExecuteOrder(message.OrderReferenceNumber, message.ExecutedShares); return true; }
-    bool onMessage(const OrderExecutedWithPriceMessage& message) override { ++_messages; _market.ExecuteOrder(message.OrderReferenceNumber, message.ExecutionPrice, message.ExecutedShares); return true; }
-    bool onMessage(const OrderCancelMessage& message) override { ++_messages; _market.ReduceOrder(message.OrderReferenceNumber, message.CanceledShares); return true; }
-    bool onMessage(const OrderDeleteMessage& message) override { ++_messages; _market.DeleteOrder(message.OrderReferenceNumber); return true; }
-    bool onMessage(const OrderReplaceMessage& message) override { ++_messages; _market.ReplaceOrder(message.OriginalOrderReferenceNumber, message.NewOrderReferenceNumber, message.Price, message.Shares); return true; }
-    bool onMessage(const TradeMessage& message) override { ++_messages; return true; }
-    bool onMessage(const CrossTradeMessage& message) override { ++_messages; return true; }
-    bool onMessage(const BrokenTradeMessage& message) override { ++_messages; return true; }
-    bool onMessage(const NOIIMessage& message) override { ++_messages; return true; }
-    bool onMessage(const RPIIMessage& message) override { ++_messages; return true; }
-    bool onMessage(const LULDAuctionCollarMessage& message) override { ++_messages; return true; }
-    bool onMessage(const UnknownMessage& message) override { ++_errors; return true; }
+    bool checkSymbolFilter(int order_id) {
+        return order_id != 381;
+    }
+
+    bool onMessage(const SystemEventMessage &message) override
+    {
+        ++_messages;
+        return true;
+    }
+    bool onMessage(const StockDirectoryMessage &message) override
+    {
+        ++_messages;
+        if (checkSymbolFilter(message.StockLocate)) return true;
+        Symbol symbol(message.StockLocate, message.Stock);
+        _market.AddSymbol(symbol);
+        _market.AddOrderBook(symbol);
+        return true;
+    }
+    bool onMessage(const StockTradingActionMessage &message) override
+    {
+        ++_messages;
+        return true;
+    }
+    bool onMessage(const RegSHOMessage &message) override
+    {
+        ++_messages;
+        return true;
+    }
+    bool onMessage(const MarketParticipantPositionMessage &message) override
+    {
+        ++_messages;
+        return true;
+    }
+    bool onMessage(const MWCBDeclineMessage &message) override
+    {
+        ++_messages;
+        return true;
+    }
+    bool onMessage(const MWCBStatusMessage &message) override
+    {
+        ++_messages;
+        return true;
+    }
+    bool onMessage(const IPOQuotingMessage &message) override
+    {
+        ++_messages;
+        return true;
+    }
+    bool onMessage(const AddOrderMessage &message) override
+    {
+        ++_messages;
+        if (checkSymbolFilter(message.StockLocate)) return true;
+        _market.AddOrder(Order::Limit(message.OrderReferenceNumber, message.StockLocate, (message.BuySellIndicator == 'B') ? OrderSide::BUY : OrderSide::SELL, message.Price, message.Shares));
+        return true;
+    }
+    bool onMessage(const AddOrderMPIDMessage &message) override
+    {
+        ++_messages;
+        if (checkSymbolFilter(message.StockLocate)) return true;
+        _market.AddOrder(Order::Limit(message.OrderReferenceNumber, message.StockLocate, (message.BuySellIndicator == 'B') ? OrderSide::BUY : OrderSide::SELL, message.Price, message.Shares));
+        return true;
+    }
+    bool onMessage(const OrderExecutedMessage &message) override
+    {
+        ++_messages;
+        if (checkSymbolFilter(message.StockLocate)) return true;
+        _market.ExecuteOrder(message.OrderReferenceNumber, message.ExecutedShares);
+        return true;
+    }
+    bool onMessage(const OrderExecutedWithPriceMessage &message) override
+    {
+        ++_messages;
+        if (checkSymbolFilter(message.StockLocate)) return true;
+        _market.ExecuteOrder(message.OrderReferenceNumber, message.ExecutionPrice, message.ExecutedShares);
+        return true;
+    }
+    bool onMessage(const OrderCancelMessage &message) override
+    {
+        ++_messages;
+        if (checkSymbolFilter(message.StockLocate)) return true;
+        _market.ReduceOrder(message.OrderReferenceNumber, message.CanceledShares);
+        return true;
+    }
+    bool onMessage(const OrderDeleteMessage &message) override
+    {
+        ++_messages;
+        if (checkSymbolFilter(message.StockLocate)) return true;
+        _market.DeleteOrder(message.OrderReferenceNumber);
+        return true;
+    }
+    bool onMessage(const OrderReplaceMessage &message) override
+    {
+        ++_messages;
+        if (checkSymbolFilter(message.StockLocate)) return true;
+        _market.ReplaceOrder(message.OriginalOrderReferenceNumber, message.NewOrderReferenceNumber, message.Price, message.Shares);
+        return true;
+    }
+    bool onMessage(const TradeMessage &message) override
+    {
+        ++_messages;
+        return true;
+    }
+    bool onMessage(const CrossTradeMessage &message) override
+    {
+        ++_messages;
+        return true;
+    }
+    bool onMessage(const BrokenTradeMessage &message) override
+    {
+        ++_messages;
+        return true;
+    }
+    bool onMessage(const NOIIMessage &message) override
+    {
+        ++_messages;
+        return true;
+    }
+    bool onMessage(const RPIIMessage &message) override
+    {
+        ++_messages;
+        return true;
+    }
+    bool onMessage(const LULDAuctionCollarMessage &message) override
+    {
+        ++_messages;
+        return true;
+    }
+    bool onMessage(const UnknownMessage &message) override
+    {
+        ++_errors;
+        return true;
+    }
 
 private:
-    MarketManager& _market;
+    MarketManager &_market;
     size_t _messages;
     size_t _errors;
 };
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     auto parser = optparse::OptionParser().version("1.0.0.0");
 
@@ -141,7 +305,7 @@ int main(int argc, char** argv)
     std::unique_ptr<Reader> input(new StdInput());
     if (options.is_set("input"))
     {
-        File* file = new File(Path(options.get("input")));
+        File *file = new File(Path(options.get("input")));
         file->Open(true, false);
         input.reset(file);
     }
