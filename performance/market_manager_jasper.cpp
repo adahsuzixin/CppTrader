@@ -13,10 +13,32 @@
 
 #include <algorithm>
 #include <vector>
+#include <memory>
+#include <queue>
+#include <list>
 
 using namespace CppCommon;
 using namespace CppTrader;
 using namespace CppTrader::ITCH;
+
+enum class OrderSide : uint8_t
+{
+    BUY,
+    SELL
+};
+
+struct Order
+{
+    Order(uint64_t id)
+        : Id(id)
+    {
+    }
+    uint64_t Id;
+    uint16_t Symbol;
+    OrderSide Side;
+    uint32_t Price;
+    uint32_t Quantity;
+};
 
 struct Symbol
 {
@@ -90,33 +112,58 @@ enum class UpdateType : uint8_t
     DELETE
 };
 
+class PriceLevel {
+public:
+    void addOrder(std::shared_ptr<Order> order) {
+        this->m_totalSize += order->Quantity;
+        m_queue.push_back(order);
+    }
+
+    void deleteOrder(std::shared_ptr<Order> order) {
+        for (auto it = m_queue.begin(); it != m_queue.end(); ++it) {
+            if ((*it)->Id == order->Id) {
+                this->m_totalSize -= (*it)->Quantity;
+                m_queue.erase(it);
+                break;
+            }
+        }
+    }
+
+    void reduceOrder(std::shared_ptr<Order> order, uint32_t quantity) {
+        for (auto it = m_queue.begin(); it != m_queue.end(); ++it) {
+            if ((*it)->Id == order->Id) {
+                if ((*it)->Quantity > quantity) {
+                    (*it)->Quantity -= quantity;
+                    this->m_totalSize -= quantity;
+                    break;
+                }
+                else {
+                    this->m_totalSize -= (*it)->Quantity;
+                    m_queue.erase(it);
+                    break;
+                }
+            }
+        }
+    }
+
+    int totalSize() {
+        return m_totalSize;
+    }
+
+    int count() {
+        return m_queue.size();
+    }
+
+private:
+    std::deque<std::shared_ptr<Order>> m_queue;
+    int m_totalSize;
+};
+
 struct LevelUpdate
 {
     UpdateType Type;
-    Level Update;
+    std::shared_ptr<PriceLevel> Update;
     bool Top;
-};
-
-enum class OrderSide : uint8_t
-{
-    BUY,
-    SELL
-};
-
-struct Order
-{
-    uint64_t Id;
-    uint16_t Symbol;
-    OrderSide Side;
-    uint32_t Price;
-    uint32_t Quantity;
-    size_t Level;
-};
-
-struct PriceLevel
-{
-    uint32_t Price;
-    size_t Level;
 };
 
 class OrderBook
@@ -124,17 +171,13 @@ class OrderBook
     friend class MarketManagerJapser;
 
 public:
-    typedef std::vector<PriceLevel> Levels;
+    typedef std::map<uint32_t, std::shared_ptr<PriceLevel>> Levels;
 
     OrderBook() = default;
     OrderBook(const OrderBook &) = delete;
     OrderBook(OrderBook &&) noexcept = default;
     ~OrderBook()
     {
-        for (const auto &bid : _bids)
-            _levels.free(bid.Level);
-        for (const auto &ask : _asks)
-            _levels.free(ask.Level);
     }
 
     OrderBook &operator=(const OrderBook &) = delete;
@@ -146,180 +189,116 @@ public:
     size_t size() const noexcept { return _bids.size() + _asks.size(); }
     const Levels &bids() const noexcept { return _bids; }
     const Levels &asks() const noexcept { return _asks; }
-    const Level *best_bid() const noexcept { return _bids.empty() ? nullptr : _levels.get(_bids.back().Level); }
-    const Level *best_ask() const noexcept { return _asks.empty() ? nullptr : _levels.get(_asks.back().Level); }
-    void dump() const {
-        std::cout << "Ask: ";
-        for (const auto &ask : _asks)
-            std::cout << ask.Price << " ";
-        std::cout << std::endl;
-        std::cout << "Bid: ";
-        for (const auto &bid : _bids)
-            std::cout << bid.Price << " ";
-        std::cout << std::endl;
-    }
+    std::shared_ptr<PriceLevel> best_bid() const noexcept { return _bids.empty() ? nullptr : _bids.rbegin()->second; }
+    std::shared_ptr<PriceLevel> best_ask() const noexcept { return _asks.empty() ? nullptr : _asks.begin()->second; }
 
 private:
     Levels _bids;
     Levels _asks;
+    std::map<uint64_t, std::shared_ptr<Order>> _orders;
 
     static LevelPool _levels;
 
-    std::pair<size_t, UpdateType> FindLevel(Order *order_ptr)
+    std::pair<std::shared_ptr<PriceLevel>, UpdateType> FindLevel(std::shared_ptr <Order> order_ptr)
     {
         if (order_ptr->Side == OrderSide::BUY)
         {
-            // Try to find required price level in the bid collection
-            auto it = _bids.end();
-            while (it-- != _bids.begin())
-            {
-                auto &price_level = *it;
-                if (price_level.Price == order_ptr->Price)
-                    return std::make_pair(price_level.Level, UpdateType::UPDATE);
-                if (price_level.Price < order_ptr->Price)
-                    break;
-            }
+            // Try to find required price level in the bid collections
+            if (_bids.find(order_ptr->Price) != _bids.end())
+                return std::make_pair(_bids[order_ptr->Price], UpdateType::UPDATE);
 
             // Create a new price level
-            size_t level_index = _levels.allocate();
-            Level *level_ptr = _levels.get(level_index);
-            level_ptr->Type = LevelType::BID;
-            level_ptr->Price = order_ptr->Price;
-            level_ptr->Volume = 0;
-            level_ptr->Orders = 0;
-
-            // Insert the price level into the bid collection
-            _bids.insert(++it, PriceLevel{level_ptr->Price, level_index});
-
-            return std::make_pair(level_index, UpdateType::ADD);
+            std::shared_ptr<PriceLevel> price_level = std::make_shared<PriceLevel>();
+            _bids[order_ptr->Price] = price_level;
+            return std::make_pair(price_level, UpdateType::ADD);
         }
         else
         {
-            // Try to find required price level in the ask collection
-            auto it = _asks.end();
-            while (it-- != _asks.begin())
-            {
-                auto &price_level = *it;
-                if (price_level.Price == order_ptr->Price)
-                    return std::make_pair(price_level.Level, UpdateType::UPDATE);
-                if (price_level.Price > order_ptr->Price)
-                    break;
-            }
+            // Try to find required price level in the bid collections
+            if (_asks.find(order_ptr->Price) != _asks.end())
+                return std::make_pair(_asks[order_ptr->Price], UpdateType::UPDATE);
 
             // Create a new price level
-            size_t level_index = _levels.allocate();
-            Level *level_ptr = _levels.get(level_index);
-            level_ptr->Type = LevelType::ASK;
-            level_ptr->Price = order_ptr->Price;
-            level_ptr->Volume = 0;
-            level_ptr->Orders = 0;
-
-            // Insert the price level into the ask collection
-            _asks.insert(++it, PriceLevel{level_ptr->Price, level_index});
-
-            return std::make_pair(level_index, UpdateType::ADD);
+            std::shared_ptr<PriceLevel> price_level = std::make_shared<PriceLevel>();
+            _asks[order_ptr->Price] = price_level;
+            return std::make_pair(price_level, UpdateType::ADD);
         }
     }
 
-    void DeleteLevel(Order *order_ptr)
+    std::shared_ptr<PriceLevel> GetLevel(std::shared_ptr <Order> order_ptr)
     {
         if (order_ptr->Side == OrderSide::BUY)
         {
-            auto it = _bids.end();
-            while (it-- != _bids.begin())
-            {
-                if (it->Price == order_ptr->Price)
-                {
-                    // Erase the price level from the bid collection
-                    _bids.erase(it);
-                    break;
-                }
-                if (it->Price < order_ptr->Price)
-                    break;
-            }
+            // Try to find required price level in the bid collections
+            return _bids[order_ptr->Price];
         }
         else
         {
-            auto it = _asks.end();
-            while (it-- != _asks.begin())
-            {
-                if (it->Price == order_ptr->Price)
-                {
-                    // Erase the price level from the ask collection
-                    _asks.erase(it);
-                    break;
-                }
-                if (it->Price > order_ptr->Price)
-                    break;
-            }
+            // Try to find required price level in the bid collections
+            return _asks[order_ptr->Price];
         }
-
-        // Release the price level
-        _levels.free(order_ptr->Level);
     }
 
-    LevelUpdate AddOrder(Order *order_ptr)
+    void DeleteLevel(std::shared_ptr <Order> order_ptr)
+    {
+        if (order_ptr->Side == OrderSide::BUY)
+        {
+            _bids.erase(order_ptr->Price);
+        }
+        else
+        {
+            _asks.erase(order_ptr->Price);
+        }
+    }
+
+    LevelUpdate AddOrder(std::shared_ptr< Order > order_ptr)
     {
         // Find the price level for the order
-        std::pair<size_t, UpdateType> find_result = FindLevel(order_ptr);
-        Level *level_ptr = _levels.get(find_result.first);
-
-        // Update the price level volume
-        level_ptr->Volume += order_ptr->Quantity;
-
-        // Update the price level orders count
-        ++level_ptr->Orders;
-
-        // Cache the price level in the given order
-        order_ptr->Level = find_result.first;
-
+        std::pair<std::shared_ptr<PriceLevel>, UpdateType> find_result = FindLevel(order_ptr);
+        auto level_ptr = find_result.first;
+        level_ptr->addOrder(order_ptr);
         // Price level was changed. Return top of the book modification flag.
-        return LevelUpdate{find_result.second, *level_ptr, (level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask()))};
+        return LevelUpdate{find_result.second, level_ptr, (level_ptr.get() == ((order_ptr->Side == OrderSide::BUY) ? best_bid().get() : best_ask().get()))};
     }
 
-    LevelUpdate ReduceOrder(Order *order_ptr, uint32_t quantity)
+    LevelUpdate ReduceOrder(std::shared_ptr <Order> order_ptr, uint32_t quantity)
     {
         // Find the price level for the order
-        Level *level_ptr = _levels.get(order_ptr->Level);
+        std::shared_ptr<PriceLevel> level_ptr = GetLevel(order_ptr);
+        level_ptr->reduceOrder(order_ptr, quantity);
 
-        // Update the price level volume
-        level_ptr->Volume -= quantity;
-
-        // Update the price level orders count
-        if (order_ptr->Quantity == 0)
-            --level_ptr->Orders;
-
-        LevelUpdate update = {UpdateType::UPDATE, Level(*level_ptr), (level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask()))};
+        LevelUpdate update = {UpdateType::UPDATE, level_ptr, (level_ptr.get() == ((order_ptr->Side == OrderSide::BUY) ? best_bid().get() : best_ask().get()))};
 
         // Delete the empty price level
-        if (level_ptr->Volume == 0)
+        if (level_ptr->totalSize() == 0)
         {
             DeleteLevel(order_ptr);
             update.Type = UpdateType::DELETE;
+        }
+        if (order_ptr->Quantity == 0)
+        {
+            this->_orders.erase(order_ptr->Id);
         }
 
         return update;
     }
 
-    LevelUpdate DeleteOrder(Order *order_ptr)
+    LevelUpdate DeleteOrder(std::shared_ptr <Order> order_ptr)
     {
         // Find the price level for the order
-        Level *level_ptr = _levels.get(order_ptr->Level);
+        std::shared_ptr<PriceLevel> level_ptr = GetLevel(order_ptr);
+        level_ptr->deleteOrder(order_ptr);
+        this->_orders.erase(order_ptr->Id);
 
-        // Update the price level volume
-        level_ptr->Volume -= order_ptr->Quantity;
-
-        // Update the price level orders count
-        --level_ptr->Orders;
-
-        LevelUpdate update = {UpdateType::UPDATE, Level(*level_ptr), (level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask()))};
+        LevelUpdate update = {UpdateType::UPDATE, level_ptr, (level_ptr.get() == ((order_ptr->Side == OrderSide::BUY) ? best_bid().get() : best_ask().get()))};
 
         // Delete the empty price level
-        if (level_ptr->Volume == 0)
+        if (level_ptr->totalSize() == 0)
         {
             DeleteLevel(order_ptr);
             update.Type = UpdateType::DELETE;
         }
+        this->_orders.erase(order_ptr->Id);
 
         return update;
     }
@@ -382,6 +361,7 @@ protected:
         {
             _max_order_book_levels = cur_max;
             _max_level_symbol = symbol_id;
+            // std::cout << "Max level symbol: " << _max_level_symbol << " Max levels: " << _max_order_book_levels << std::endl;
         }
     }
     void onDeleteOrderBook(const OrderBook &order_book)
@@ -389,9 +369,9 @@ protected:
         ++_updates;
         --_order_books;
     }
-    void onAddLevel(const OrderBook &order_book, const Level &level, bool top) { ++_updates; }
-    void onUpdateLevel(const OrderBook &order_book, const Level &level, bool top) { ++_updates; }
-    void onDeleteLevel(const OrderBook &order_book, const Level &level, bool top) { ++_updates; }
+    void onAddLevel(const OrderBook &order_book, std::shared_ptr<PriceLevel> level, bool top) { ++_updates; }
+    void onUpdateLevel(const OrderBook &order_book, std::shared_ptr<PriceLevel> level, bool top) { ++_updates; }
+    void onDeleteLevel(const OrderBook &order_book, std::shared_ptr<PriceLevel> level, bool top) { ++_updates; }
     void onAddOrder(const Order &order)
     {
         ++_updates;
@@ -439,7 +419,6 @@ public:
     {
         _symbols.resize(10000);
         _order_books.resize(10000);
-        _orders.resize(400000000);
     }
     MarketManagerJapser(const MarketManagerJapser &) = delete;
     MarketManagerJapser(MarketManagerJapser &&) = delete;
@@ -449,22 +428,18 @@ public:
 
     const Symbol *GetSymbol(uint16_t id) const noexcept { return &_symbols[id]; }
     const OrderBook *GetOrderBook(uint16_t id) const noexcept { return &_order_books[id]; }
-    const Order *GetOrder(uint64_t id) const noexcept { return &_orders[id]; }
-    Order *GetOrderExcept(uint64_t id)
+
+    std::shared_ptr <Order> GetOrderExcept(OrderBook* order_book, uint64_t id)
     {
-        Order *ret = nullptr;
-        try
-        {
-            ret = &_orders.at(id);
+        auto it = order_book->_orders.find(id);
+        if (it == order_book->_orders.end()) {
+            std::shared_ptr <Order> ret = std::make_shared<Order>(id);
+            order_book->_orders[id] = ret;
+            return ret;
+        } else {
+            return it->second;
         }
-        catch (const std::exception &e)
-        {
-            std::cerr << e.what() << '\n';
-            // terminate
-            std::cerr << "Order not found " << id << '\n';
-            std::terminate();
-        }
-        return ret;
+
     }
 
     void AddSymbol(const Symbol &symbol)
@@ -499,40 +474,38 @@ public:
 
     void AddOrder(uint64_t id, uint16_t symbol, OrderSide side, uint32_t price, uint32_t quantity)
     {
+        // Add the new order into the order book
+        OrderBook *order_book_ptr = &_order_books[symbol];
         // Insert the order
-        Order *order_ptr = GetOrderExcept(id);
-        order_ptr->Id = id;
+        std::shared_ptr<Order> order_ptr = GetOrderExcept(order_book_ptr, id);
         order_ptr->Symbol = symbol;
         order_ptr->Side = side;
         order_ptr->Quantity = quantity;
         order_ptr->Price = price;
         // Call the corresponding handler
         _market_handler.onAddOrder(*order_ptr);
-
-        // Add the new order into the order book
-        OrderBook *order_book_ptr = &_order_books[order_ptr->Symbol];
         UpdateLevel(*order_book_ptr, order_book_ptr->AddOrder(order_ptr), order_ptr->Symbol);
     }
 
-    void ReduceOrder(uint64_t id, uint32_t quantity)
+    void ReduceOrder(uint64_t id, uint16_t symbol, uint32_t quantity)
     {
-        // Get the order to reduce
-        Order *order_ptr = GetOrderExcept(id);
+        OrderBook *order_book_ptr = &_order_books[symbol];
+        std::shared_ptr<Order> order_ptr = GetOrderExcept(order_book_ptr, id);
 
         // Calculate the minimal possible order quantity to reduce
+        auto left_quantity = order_ptr->Quantity;
         quantity = std::min(quantity, order_ptr->Quantity);
 
         // Reduce the order quantity
-        order_ptr->Quantity -= quantity;
+        left_quantity -= quantity;
 
         // Update the order or delete the empty order
-        if (order_ptr->Quantity > 0)
+        if (left_quantity > 0)
         {
             // Call the corresponding handler
             _market_handler.onUpdateOrder(*order_ptr);
 
             // Reduce the order in the order book
-            OrderBook *order_book_ptr = &_order_books[order_ptr->Symbol];
             UpdateLevel(*order_book_ptr, order_book_ptr->ReduceOrder(order_ptr, quantity));
         }
         else
@@ -541,18 +514,17 @@ public:
             _market_handler.onDeleteOrder(*order_ptr);
 
             // Delete the order in the order book
-            OrderBook *order_book_ptr = &_order_books[order_ptr->Symbol];
             UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
         }
     }
 
-    void ModifyOrder(uint64_t id, int32_t new_price, uint32_t new_quantity)
+    void ModifyOrder(uint64_t id, uint16_t symbol, int32_t new_price, uint32_t new_quantity)
     {
+        OrderBook *order_book_ptr = &_order_books[symbol];
         // Get the order to modify
-        Order *order_ptr = GetOrderExcept(id);
+        std::shared_ptr <Order> order_ptr = GetOrderExcept(order_book_ptr, id);
 
         // Delete the order from the order book
-        OrderBook *order_book_ptr = &_order_books[order_ptr->Symbol];
         UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
 
         // Modify the order
@@ -575,13 +547,13 @@ public:
         }
     }
 
-    void ReplaceOrder(uint64_t id, uint64_t new_id, int32_t new_price, uint32_t new_quantity)
+    void ReplaceOrder(uint64_t id, uint16_t symbol, uint64_t new_id, int32_t new_price, uint32_t new_quantity)
     {
-        // Get the order to replace
-        Order *order_ptr = GetOrderExcept(id);
-
         // Delete the old order from the order book
-        OrderBook *order_book_ptr = &_order_books[order_ptr->Symbol];
+        OrderBook *order_book_ptr = &_order_books[symbol];
+        // Get the order to replace
+        std::shared_ptr <Order> order_ptr = GetOrderExcept(order_book_ptr, id);
+
         UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
 
         // Call the corresponding handler
@@ -590,8 +562,7 @@ public:
         if (new_quantity > 0)
         {
             // Replace the order
-            Order *new_order_ptr = &_orders[new_id];
-            *new_order_ptr = *order_ptr;
+            std::shared_ptr <Order> new_order_ptr = GetOrderExcept(order_book_ptr, new_id);
             new_order_ptr->Id = new_id;
             new_order_ptr->Symbol = order_ptr->Symbol;
             new_order_ptr->Side = order_ptr->Side;
@@ -606,54 +577,24 @@ public:
         }
     }
 
-    void ReplaceOrder(uint64_t id, uint64_t new_id, uint16_t new_symbol, OrderSide new_side, uint32_t new_price, uint32_t new_quantity)
+    void DeleteOrder(uint64_t id, uint16_t symbol)
     {
-        // Get the order to replace
-        Order *order_ptr = GetOrderExcept(id);
-
-        // Delete the old order from the order book
-        OrderBook *order_book_ptr = &_order_books[order_ptr->Symbol];
-        UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
-
-        // Call the corresponding handler
-        _market_handler.onDeleteOrder(*order_ptr);
-
-        if (new_quantity > 0)
-        {
-            // Replace the order
-            Order *new_order_ptr = &_orders[new_id];
-            new_order_ptr->Id = new_id;
-            new_order_ptr->Symbol = new_symbol;
-            new_order_ptr->Side = new_side;
-            new_order_ptr->Price = new_price;
-            new_order_ptr->Quantity = new_quantity;
-
-            // Call the corresponding handler
-            _market_handler.onAddOrder(*new_order_ptr);
-
-            // Add the modified order into the order book
-            order_book_ptr = &_order_books[new_order_ptr->Symbol];
-            UpdateLevel(*order_book_ptr, order_book_ptr->AddOrder(new_order_ptr));
-        }
-    }
-
-    void DeleteOrder(uint64_t id)
-    {
-        // Get the order to delete
-        Order *order_ptr = GetOrderExcept(id);
-
         // Delete the order from the order book
-        OrderBook *order_book_ptr = &_order_books[order_ptr->Symbol];
+        OrderBook *order_book_ptr = &_order_books[symbol];
+        // Get the order to delete
+        std::shared_ptr <Order> order_ptr = GetOrderExcept(order_book_ptr, id);
+
         UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
 
         // Call the corresponding handler
         _market_handler.onDeleteOrder(*order_ptr);
     }
 
-    void ExecuteOrder(uint64_t id, uint32_t quantity)
+    void ExecuteOrder(uint64_t id, uint16_t symbol, uint32_t quantity)
     {
+        OrderBook *order_book_ptr = &_order_books[symbol];
         // Get the order to execute
-        Order *order_ptr = GetOrderExcept(id);
+        std::shared_ptr <Order> order_ptr = GetOrderExcept(order_book_ptr, id);
 
         // Calculate the minimal possible order quantity to execute
         quantity = std::min(quantity, order_ptr->Quantity);
@@ -662,14 +603,14 @@ public:
         _market_handler.onExecuteOrder(*order_ptr, order_ptr->Price, quantity);
 
         // Reduce the order quantity
-        order_ptr->Quantity -= quantity;
+        auto left_quantity = order_ptr->Quantity;
+        left_quantity -= quantity;
 
         // Reduce the order in the order book
-        OrderBook *order_book_ptr = &_order_books[order_ptr->Symbol];
         UpdateLevel(*order_book_ptr, order_book_ptr->ReduceOrder(order_ptr, quantity));
 
         // Update the order or delete the empty order
-        if (order_ptr->Quantity > 0)
+        if (left_quantity > 0)
         {
             // Call the corresponding handler
             _market_handler.onUpdateOrder(*order_ptr);
@@ -681,10 +622,11 @@ public:
         }
     }
 
-    void ExecuteOrder(uint64_t id, int32_t price, uint32_t quantity)
+    void ExecuteOrder(uint64_t id, uint16_t symbol, int32_t price, uint32_t quantity)
     {
+        OrderBook *order_book_ptr = &_order_books[symbol];
         // Get the order to execute
-        Order *order_ptr = GetOrderExcept(id);
+        std::shared_ptr <Order> order_ptr = GetOrderExcept(order_book_ptr, id);
 
         // Calculate the minimal possible order quantity to execute
         quantity = std::min(quantity, order_ptr->Quantity);
@@ -693,14 +635,14 @@ public:
         _market_handler.onExecuteOrder(*order_ptr, price, quantity);
 
         // Reduce the order quantity
-        order_ptr->Quantity -= quantity;
+        auto left_quantity = order_ptr->Quantity;
+        left_quantity -= quantity;
 
         // Reduce the order in the order book
-        OrderBook *order_book_ptr = &_order_books[order_ptr->Symbol];
         UpdateLevel(*order_book_ptr, order_book_ptr->ReduceOrder(order_ptr, quantity));
 
         // Update the order or delete the empty order
-        if (order_ptr->Quantity > 0)
+        if (left_quantity > 0)
         {
             // Call the corresponding handler
             _market_handler.onUpdateOrder(*order_ptr);
@@ -717,7 +659,6 @@ private:
 
     std::vector<Symbol> _symbols;
     std::vector<OrderBook> _order_books;
-    std::vector<Order> _orders;
 
     void UpdateLevel(const OrderBook &order_book, const LevelUpdate &update, int symbol_id = 0) const
     {
@@ -753,13 +694,21 @@ public:
     size_t errors() const { return _errors; }
 
 protected:
+    bool filterSymbol(uint16_t symbol) { 
+        if (symbol != 381) {
+            return true;
+        }
+        return false;
+    }
     bool onMessage(const SystemEventMessage &message) override
     {
+        // if (filterSymbol(message.StockLocate)) return true;
         ++_messages;
         return true;
     }
     bool onMessage(const StockDirectoryMessage &message) override
     {
+        // if (filterSymbol(message.StockLocate)) return true;
         ++_messages;
         Symbol symbol(message.StockLocate, message.Stock);
         _market.AddSymbol(symbol);
@@ -798,45 +747,55 @@ protected:
     }
     bool onMessage(const AddOrderMessage &message) override
     {
+        // if (filterSymbol(message.StockLocate)) return true;
         ++_messages;
-        // std::cout << message.Price << std::endl;
         _market.AddOrder(message.OrderReferenceNumber, message.StockLocate, (message.BuySellIndicator == 'B') ? OrderSide::BUY : OrderSide::SELL, message.Price, message.Shares);
         return true;
     }
     bool onMessage(const AddOrderMPIDMessage &message) override
     {
+        // if (filterSymbol(message.StockLocate)) return true;
         ++_messages;
         _market.AddOrder(message.OrderReferenceNumber, message.StockLocate, (message.BuySellIndicator == 'B') ? OrderSide::BUY : OrderSide::SELL, message.Price, message.Shares);
         return true;
     }
     bool onMessage(const OrderExecutedMessage &message) override
     {
+        // if (filterSymbol(message.StockLocate)) return true;
         ++_messages;
-        _market.ExecuteOrder(message.OrderReferenceNumber, message.ExecutedShares);
+        _market.ExecuteOrder(message.OrderReferenceNumber, message.StockLocate, message.ExecutedShares);
         return true;
     }
     bool onMessage(const OrderExecutedWithPriceMessage &message) override
     {
+        // if (filterSymbol(message.StockLocate)) return true;
         ++_messages;
-        _market.ExecuteOrder(message.OrderReferenceNumber, message.ExecutionPrice, message.ExecutedShares);
+        _market.ExecuteOrder(message.OrderReferenceNumber, message.StockLocate, message.ExecutionPrice, message.ExecutedShares);
         return true;
     }
     bool onMessage(const OrderCancelMessage &message) override
     {
+        // if (filterSymbol(message.StockLocate)) return true;
         ++_messages;
-        _market.ReduceOrder(message.OrderReferenceNumber, message.CanceledShares);
+        _market.ReduceOrder(message.OrderReferenceNumber, message.StockLocate, message.CanceledShares);
         return true;
     }
     bool onMessage(const OrderDeleteMessage &message) override
     {
+        // if (filterSymbol(message.StockLocate)) return true;
         ++_messages;
-        _market.DeleteOrder(message.OrderReferenceNumber);
+        _market.DeleteOrder(message.OrderReferenceNumber, message.StockLocate);
         return true;
     }
     bool onMessage(const OrderReplaceMessage &message) override
     {
+        // if (filterSymbol(message.StockLocate)) return true;
         ++_messages;
-        _market.ReplaceOrder(message.OriginalOrderReferenceNumber, message.NewOrderReferenceNumber, message.Price, message.Shares);
+        _market.ReplaceOrder(message.OriginalOrderReferenceNumber,
+                             message.StockLocate,
+                             message.NewOrderReferenceNumber,
+                             message.Price,
+                             message.Shares);
         return true;
     }
     bool onMessage(const TradeMessage &message) override
