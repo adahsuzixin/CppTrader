@@ -39,6 +39,7 @@ struct Order
     OrderSide Side;
     uint32_t Price;
     uint32_t Quantity;
+    std::list<std::shared_ptr<Order>>::iterator Position;
 };
 
 struct Symbol
@@ -117,34 +118,20 @@ class PriceLevel {
 public:
     void addOrder(std::shared_ptr<Order> order) {
         this->m_totalSize += order->Quantity;
-        m_queue.push_back(order);
+        auto it = m_queue.insert(m_queue.end(), order);
+        order->Position = it;
     }
 
     void deleteOrder(std::shared_ptr<Order> order) {
-        for (auto it = m_queue.begin(); it != m_queue.end(); ++it) {
-            if ((*it)->Id == order->Id) {
-                this->m_totalSize -= (*it)->Quantity;
-                m_queue.erase(it);
-                break;
-            }
-        }
+        this->m_totalSize -= order->Quantity;
+        m_queue.erase(order->Position);
     }
 
     void reduceOrder(std::shared_ptr<Order> order, uint32_t quantity) {
-        for (auto it = m_queue.begin(); it != m_queue.end(); ++it) {
-            if ((*it)->Id == order->Id) {
-                if ((*it)->Quantity > quantity) {
-                    (*it)->Quantity -= quantity;
-                    this->m_totalSize -= quantity;
-                    break;
-                }
-                else {
-                    this->m_totalSize -= (*it)->Quantity;
-                    m_queue.erase(it);
-                    break;
-                }
-            }
-        }
+        order->Quantity -= quantity;
+        this->m_totalSize -= quantity;
+        if (order->Quantity == 0)
+            m_queue.erase(order->Position);
     }
 
     int totalSize() {
@@ -156,7 +143,7 @@ public:
     }
 
 private:
-    std::deque<std::shared_ptr<Order>> m_queue;
+    std::list<std::shared_ptr<Order>> m_queue;
     int m_totalSize;
 };
 
