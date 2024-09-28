@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <vector>
+#include <unordered_map>
 #include <memory>
 #include <queue>
 #include <list>
@@ -195,7 +196,7 @@ public:
 private:
     Levels _bids;
     Levels _asks;
-    std::map<uint64_t, std::shared_ptr<Order>> _orders;
+    std::unordered_map<uint64_t, std::shared_ptr<Order>> _orders;
 
     static LevelPool _levels;
 
