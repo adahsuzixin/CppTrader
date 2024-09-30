@@ -28,6 +28,8 @@ enum class OrderSide : uint8_t
     SELL
 };
 
+class PriceLevel;
+
 struct Order
 {
     Order(uint64_t id)
@@ -40,6 +42,7 @@ struct Order
     uint32_t Price;
     uint32_t Quantity;
     std::list<std::shared_ptr<Order>>::iterator Position;
+    std::map<uint32_t, std::shared_ptr<PriceLevel>>::iterator Level;
 };
 
 struct Symbol
@@ -116,6 +119,7 @@ enum class UpdateType : uint8_t
 
 class PriceLevel {
 public:
+    PriceLevel():m_totalSize(0) {}
     void addOrder(std::shared_ptr<Order> order) {
         this->m_totalSize += order->Quantity;
         auto it = m_queue.insert(m_queue.end(), order);
@@ -125,13 +129,16 @@ public:
     void deleteOrder(std::shared_ptr<Order> order) {
         this->m_totalSize -= order->Quantity;
         m_queue.erase(order->Position);
+        order->Position = m_queue.end();
     }
 
     void reduceOrder(std::shared_ptr<Order> order, uint32_t quantity) {
         order->Quantity -= quantity;
         this->m_totalSize -= quantity;
-        if (order->Quantity == 0)
+        if (order->Quantity == 0) {
             m_queue.erase(order->Position);
+            order->Position = m_queue.end();
+        }
     }
 
     int totalSize() {
@@ -192,39 +199,36 @@ private:
         if (order_ptr->Side == OrderSide::BUY)
         {
             // Try to find required price level in the bid collections
-            if (_bids.find(order_ptr->Price) != _bids.end())
-                return std::make_pair(_bids[order_ptr->Price], UpdateType::UPDATE);
+            if (_bids.find(order_ptr->Price) != _bids.end()) {
+                order_ptr->Level = _bids.find(order_ptr->Price);
+                return std::make_pair(order_ptr->Level->second, UpdateType::UPDATE);
+            }
 
             // Create a new price level
             std::shared_ptr<PriceLevel> price_level = std::make_shared<PriceLevel>();
-            _bids[order_ptr->Price] = price_level;
+            auto it = _bids.insert(std::make_pair(order_ptr->Price, price_level));
+            order_ptr->Level = it.first;
             return std::make_pair(price_level, UpdateType::ADD);
         }
         else
         {
             // Try to find required price level in the bid collections
-            if (_asks.find(order_ptr->Price) != _asks.end())
-                return std::make_pair(_asks[order_ptr->Price], UpdateType::UPDATE);
+            if (_asks.find(order_ptr->Price) != _asks.end()) {
+                order_ptr->Level = _asks.find(order_ptr->Price);
+                return std::make_pair(order_ptr->Level->second, UpdateType::UPDATE);
+            }
 
             // Create a new price level
             std::shared_ptr<PriceLevel> price_level = std::make_shared<PriceLevel>();
-            _asks[order_ptr->Price] = price_level;
+            auto it = _asks.insert(std::make_pair(order_ptr->Price, price_level));
+            order_ptr->Level = it.first;
             return std::make_pair(price_level, UpdateType::ADD);
         }
     }
 
     std::shared_ptr<PriceLevel> GetLevel(std::shared_ptr <Order> order_ptr)
     {
-        if (order_ptr->Side == OrderSide::BUY)
-        {
-            // Try to find required price level in the bid collections
-            return _bids[order_ptr->Price];
-        }
-        else
-        {
-            // Try to find required price level in the bid collections
-            return _asks[order_ptr->Price];
-        }
+        return order_ptr->Level->second;
     }
 
     void DeleteLevel(std::shared_ptr <Order> order_ptr)
