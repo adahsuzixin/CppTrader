@@ -355,20 +355,24 @@ private:
         if (order_ptr->Side == OrderSide::BUY)
         {
             // Update the best bid price level
+            // std::cout << "before delete bid: " << _bids.size() << std::endl;
             if (level_ptr == _best_bid)
                 _best_bid = (_best_bid->left != nullptr) ? _best_bid->left : ((_best_bid->parent != nullptr) ? _best_bid->parent : _best_bid->right);
 
             // Erase the price level from the bid collection
             _bids.erase(Levels::iterator(&_bids, level_ptr));
+            // std::cout << "after delete bid: " << _bids.size() << std::endl;
         }
         else
         {
             // Update the best ask price level
+            // std::cout << "before delete ask: " << _asks.size() << std::endl;
             if (level_ptr == _best_ask)
                 _best_ask = (_best_ask->right != nullptr) ? _best_ask->right : ((_best_ask->parent != nullptr) ? _best_ask->parent : _best_ask->left);
 
             // Erase the price level from the ask collection
             _asks.erase(Levels::iterator(&_asks, level_ptr));
+            // std::cout << "after delete ask: " << _asks.size() << std::endl;
         }
         delete level_ptr;
     }
@@ -379,6 +383,7 @@ private:
         std::pair<LevelNode*, UpdateType> find_result = FindLevel(order_ptr);
         auto level_ptr = find_result.first;
         level_ptr->addOrder(order_ptr);
+        order_ptr->Level = level_ptr;
         // Price level was changed. Return top of the book modification flag.
         return LevelUpdate{find_result.second, level_ptr, level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask())};
     }
