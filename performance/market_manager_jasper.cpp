@@ -17,6 +17,8 @@
 #include <memory>
 #include <queue>
 #include <list>
+#include "containers/bintree_avl.h"
+#include "containers/list.h"
 
 using namespace CppCommon;
 using namespace CppTrader;
@@ -63,49 +65,13 @@ enum class LevelType : uint8_t
     ASK
 };
 
-struct Level
-{
-    LevelType Type;
-    uint32_t Price;
-    uint32_t Volume;
-    size_t Orders;
-};
-
-class LevelPool
-{
-public:
-    LevelPool() = default;
-    explicit LevelPool(size_t reserve) { _allocated.reserve(reserve); }
-
-    Level &operator[](size_t index) { return _allocated[index]; }
-
-    Level *get(size_t index) { return &_allocated[index]; }
-
-    size_t allocate()
-    {
-        if (_free.empty())
-        {
-            size_t index = _allocated.size();
-            _allocated.emplace_back();
-            return index;
-        }
-        else
-        {
-            size_t index = _free.back();
-            _free.pop_back();
-            return index;
-        }
-    }
-
-    void free(size_t index)
-    {
-        _free.push_back(index);
-    }
-
-private:
-    std::vector<Level> _allocated;
-    std::vector<size_t> _free;
-};
+// struct Level
+// {
+//     LevelType Type;
+//     uint32_t Price;
+//     uint32_t Volume;
+//     size_t Orders;
+// };
 
 enum class UpdateType : uint8_t
 {
@@ -144,13 +110,156 @@ public:
 
 private:
     std::list<std::shared_ptr<Order>> m_queue;
+    // CppCommon::List<std::shared_ptr<Order>> m_queue;
     int m_totalSize;
 };
+
+struct LevelNode;
+
+struct OrderNode : public Order, public CppCommon::List<OrderNode>::Node
+{
+    LevelNode* Level;
+
+    OrderNode(const Order& order) noexcept;
+    OrderNode(const OrderNode&) noexcept = default;
+    OrderNode(OrderNode&&) noexcept = default;
+    ~OrderNode() noexcept = default;
+
+    OrderNode& operator=(const Order& order) noexcept;
+    OrderNode& operator=(const OrderNode&) noexcept = default;
+    OrderNode& operator=(OrderNode&&) noexcept = default;
+};
+
+inline OrderNode::OrderNode(const Order& order) noexcept : Order(order), Level(nullptr)
+{
+}
+
+inline OrderNode& OrderNode::operator=(const Order& order) noexcept
+{
+    Order::operator=(order);
+    Level = nullptr;
+    return *this;
+}
+
+//! Price level
+struct Level
+{
+    //! Level type
+    LevelType Type;
+    //! Level price
+    uint64_t Price;
+    //! Level volume
+    uint64_t TotalVolume;
+    //! Level hidden volume
+    uint64_t HiddenVolume;
+    //! Level visible volume
+    uint64_t VisibleVolume;
+    //! Level orders
+    size_t Orders;
+
+    Level(LevelType type, uint64_t price) noexcept;
+    Level(const Level&) noexcept = default;
+    Level(Level&&) noexcept = default;
+    ~Level() noexcept = default;
+
+    Level& operator=(const Level&) noexcept = default;
+    Level& operator=(Level&&) noexcept = default;
+
+    // Price level comparison
+    friend bool operator==(const Level& level1, const Level& level2) noexcept
+    { return level1.Price == level2.Price; }
+    friend bool operator!=(const Level& level1, const Level& level2) noexcept
+    { return level1.Price != level2.Price; }
+    friend bool operator<(const Level& level1, const Level& level2) noexcept
+    { return level1.Price < level2.Price; }
+    friend bool operator>(const Level& level1, const Level& level2) noexcept
+    { return level1.Price > level2.Price; }
+    friend bool operator<=(const Level& level1, const Level& level2) noexcept
+    { return level1.Price <= level2.Price; }
+    friend bool operator>=(const Level& level1, const Level& level2) noexcept
+    { return level1.Price >= level2.Price; }
+
+    template <class TOutputStream>
+    friend TOutputStream& operator<<(TOutputStream& stream, const Level& level);
+
+    //! Is the bid price level?
+    bool IsBid() const noexcept { return Type == LevelType::BID; }
+    //! Is the ask price level?
+    bool IsAsk() const noexcept { return Type == LevelType::ASK; }
+};
+
+//! Price level node
+struct LevelNode : public Level, public CppCommon::BinTreeAVL<LevelNode>::Node
+{
+    //! Price level orders
+    CppCommon::List<OrderNode> OrderList;
+
+    LevelNode(LevelType type, uint64_t price) noexcept;
+    LevelNode(const Level& level) noexcept;
+    LevelNode(const LevelNode&) noexcept = default;
+    LevelNode(LevelNode&&) noexcept = default;
+    ~LevelNode() noexcept = default;
+
+    LevelNode& operator=(const Level& level) noexcept;
+    LevelNode& operator=(const LevelNode&) noexcept = default;
+    LevelNode& operator=(LevelNode&&) noexcept = default;
+
+    // Price level comparison
+    friend bool operator==(const LevelNode& level1, const LevelNode& level2) noexcept
+    { return level1.Price == level2.Price; }
+    friend bool operator!=(const LevelNode& level1, const LevelNode& level2) noexcept
+    { return level1.Price != level2.Price; }
+    friend bool operator<(const LevelNode& level1, const LevelNode& level2) noexcept
+    { return level1.Price < level2.Price; }
+    friend bool operator>(const LevelNode& level1, const LevelNode& level2) noexcept
+    { return level1.Price > level2.Price; }
+    friend bool operator<=(const LevelNode& level1, const LevelNode& level2) noexcept
+    { return level1.Price <= level2.Price; }
+    friend bool operator>=(const LevelNode& level1, const LevelNode& level2) noexcept
+    { return level1.Price >= level2.Price; }
+
+    void addOrder(std::shared_ptr<OrderNode> order) {
+        this->TotalVolume += order->Quantity;
+        OrderList.push_back(*order);
+    }
+
+    void reduceOrder(std::shared_ptr<OrderNode> order, uint32_t quantity) {
+        order->Quantity -= quantity;
+        this->TotalVolume -= quantity;
+        if (order->Quantity == 0)
+            OrderList.pop_current(*order);
+    }
+    void deleteOrder(std::shared_ptr<OrderNode> order) {
+        this->TotalVolume -= order->Quantity;
+        OrderList.pop_current(*order);
+    }
+};
+
+
+inline LevelNode::LevelNode(LevelType type, uint64_t price) noexcept
+    : Level(type, price)
+{
+}
+
+inline LevelNode::LevelNode(const Level& level) noexcept : Level(level)
+{
+}
+
+inline Level::Level(LevelType type, uint64_t price) noexcept
+    : Type(type),
+      Price(price),
+      TotalVolume(0),
+      HiddenVolume(0),
+      VisibleVolume(0),
+      Orders(0)
+{
+}
+
 
 struct LevelUpdate
 {
     UpdateType Type;
-    std::shared_ptr<PriceLevel> Update;
+    LevelNode* Update;
     bool Top;
 };
 
@@ -159,7 +268,8 @@ class OrderBook
     friend class MarketManagerJapser;
 
 public:
-    typedef std::map<uint32_t, std::shared_ptr<PriceLevel>> Levels;
+    typedef CppCommon::BinTreeAVL<LevelNode, std::less<LevelNode>> Levels;
+    // typedef std::map<uint32_t, std::shared_ptr<PriceLevel>> Levels;
 
     OrderBook() = default;
     OrderBook(const OrderBook &) = delete;
@@ -177,88 +287,112 @@ public:
     size_t size() const noexcept { return _bids.size() + _asks.size(); }
     const Levels &bids() const noexcept { return _bids; }
     const Levels &asks() const noexcept { return _asks; }
-    std::shared_ptr<PriceLevel> best_bid() const noexcept { return _bids.empty() ? nullptr : _bids.rbegin()->second; }
-    std::shared_ptr<PriceLevel> best_ask() const noexcept { return _asks.empty() ? nullptr : _asks.begin()->second; }
-
+    //! Get the order book best bid price level
+    const LevelNode* best_bid() const noexcept { return _best_bid; }
+    //! Get the order book best ask price level
+    const LevelNode* best_ask() const noexcept { return _best_ask; }
 private:
+    LevelNode* _best_bid;
+    LevelNode* _best_ask;
     Levels _bids;
     Levels _asks;
-    std::unordered_map<uint64_t, std::shared_ptr<Order>> _orders;
+    std::unordered_map<uint64_t, std::shared_ptr<OrderNode>> _orders;
 
-    static LevelPool _levels;
-
-    std::pair<std::shared_ptr<PriceLevel>, UpdateType> FindLevel(std::shared_ptr <Order> order_ptr)
+    std::pair<LevelNode*, UpdateType> FindLevel(std::shared_ptr <OrderNode> order_ptr)
     {
         if (order_ptr->Side == OrderSide::BUY)
         {
             // Try to find required price level in the bid collections
-            if (_bids.find(order_ptr->Price) != _bids.end())
-                return std::make_pair(_bids[order_ptr->Price], UpdateType::UPDATE);
+            auto it = _bids.find(LevelNode(LevelType::BID, order_ptr->Price));
+            if (it != _bids.end()) 
+                return std::make_pair(it.operator->(), UpdateType::UPDATE);
 
             // Create a new price level
-            std::shared_ptr<PriceLevel> price_level = std::make_shared<PriceLevel>();
-            _bids[order_ptr->Price] = price_level;
-            return std::make_pair(price_level, UpdateType::ADD);
+            LevelNode *level_ptr = new LevelNode(LevelType::BID, order_ptr->Price);
+            _bids.insert(*level_ptr);
+
+            // Update the best bid price level
+            if ((_best_bid == nullptr) || (level_ptr->Price > _best_bid->Price))
+                _best_bid = level_ptr;
+            return std::make_pair(level_ptr, UpdateType::ADD);
         }
         else
         {
-            // Try to find required price level in the bid collections
-            if (_asks.find(order_ptr->Price) != _asks.end())
-                return std::make_pair(_asks[order_ptr->Price], UpdateType::UPDATE);
+            auto it = _asks.find(LevelNode(LevelType::ASK, order_ptr->Price));
+            if (it != _asks.end()) 
+                return std::make_pair(it.operator->(), UpdateType::UPDATE);
 
             // Create a new price level
-            std::shared_ptr<PriceLevel> price_level = std::make_shared<PriceLevel>();
-            _asks[order_ptr->Price] = price_level;
-            return std::make_pair(price_level, UpdateType::ADD);
+            LevelNode *level_ptr = new LevelNode(LevelType::ASK, order_ptr->Price);
+            _asks.insert(*level_ptr);
+
+            // Update the best bid price level
+            if ((_best_ask == nullptr) || (level_ptr->Price > _best_ask->Price))
+                _best_ask = level_ptr;
+
+            return std::make_pair(level_ptr, UpdateType::ADD);
         }
     }
 
-    std::shared_ptr<PriceLevel> GetLevel(std::shared_ptr <Order> order_ptr)
+    LevelNode* GetLevel(std::shared_ptr <OrderNode> order_ptr)
     {
         if (order_ptr->Side == OrderSide::BUY)
         {
-            // Try to find required price level in the bid collections
-            return _bids[order_ptr->Price];
+            auto it = _bids.find(LevelNode(LevelType::BID, order_ptr->Price));
+            return (it != _bids.end()) ? it.operator->() : nullptr;
         }
         else
         {
             // Try to find required price level in the bid collections
-            return _asks[order_ptr->Price];
+            auto it = _asks.find(LevelNode(LevelType::ASK, order_ptr->Price));
+            return (it != _asks.end()) ? it.operator->() : nullptr;
         }
     }
 
-    void DeleteLevel(std::shared_ptr <Order> order_ptr)
+    void DeleteLevel(std::shared_ptr <OrderNode> order_ptr)
     {
+        LevelNode* level_ptr = order_ptr->Level;
         if (order_ptr->Side == OrderSide::BUY)
         {
-            _bids.erase(order_ptr->Price);
+            // Update the best bid price level
+            if (level_ptr == _best_bid)
+                _best_bid = (_best_bid->left != nullptr) ? _best_bid->left : ((_best_bid->parent != nullptr) ? _best_bid->parent : _best_bid->right);
+
+            // Erase the price level from the bid collection
+            _bids.erase(Levels::iterator(&_bids, level_ptr));
         }
         else
         {
-            _asks.erase(order_ptr->Price);
+            // Update the best ask price level
+            if (level_ptr == _best_ask)
+                _best_ask = (_best_ask->right != nullptr) ? _best_ask->right : ((_best_ask->parent != nullptr) ? _best_ask->parent : _best_ask->left);
+
+            // Erase the price level from the ask collection
+            _asks.erase(Levels::iterator(&_asks, level_ptr));
         }
+        delete level_ptr;
     }
 
-    LevelUpdate AddOrder(std::shared_ptr< Order > order_ptr)
+    LevelUpdate AddOrder(std::shared_ptr< OrderNode > order_ptr)
     {
         // Find the price level for the order
-        std::pair<std::shared_ptr<PriceLevel>, UpdateType> find_result = FindLevel(order_ptr);
+        std::pair<LevelNode*, UpdateType> find_result = FindLevel(order_ptr);
         auto level_ptr = find_result.first;
         level_ptr->addOrder(order_ptr);
         // Price level was changed. Return top of the book modification flag.
-        return LevelUpdate{find_result.second, level_ptr, (level_ptr.get() == ((order_ptr->Side == OrderSide::BUY) ? best_bid().get() : best_ask().get()))};
+        return LevelUpdate{find_result.second, level_ptr, level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask())};
     }
 
-    LevelUpdate ReduceOrder(std::shared_ptr <Order> order_ptr, uint32_t quantity)
+    LevelUpdate ReduceOrder(std::shared_ptr <OrderNode> order_ptr, uint32_t quantity)
     {
         // Find the price level for the order
-        std::shared_ptr<PriceLevel> level_ptr = GetLevel(order_ptr);
+        LevelNode* level_ptr = GetLevel(order_ptr);
         level_ptr->reduceOrder(order_ptr, quantity);
 
-        LevelUpdate update = {UpdateType::UPDATE, level_ptr, (level_ptr.get() == ((order_ptr->Side == OrderSide::BUY) ? best_bid().get() : best_ask().get()))};
+        LevelUpdate update = {UpdateType::UPDATE, level_ptr, level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask())};
 
         // Delete the empty price level
-        if (level_ptr->totalSize() == 0)
+        if (level_ptr->TotalVolume == 0)
         {
             DeleteLevel(order_ptr);
             update.Type = UpdateType::DELETE;
@@ -271,17 +405,17 @@ private:
         return update;
     }
 
-    LevelUpdate DeleteOrder(std::shared_ptr <Order> order_ptr)
+    LevelUpdate DeleteOrder(std::shared_ptr <OrderNode> order_ptr)
     {
         // Find the price level for the order
-        std::shared_ptr<PriceLevel> level_ptr = GetLevel(order_ptr);
+        LevelNode* level_ptr = GetLevel(order_ptr);
         level_ptr->deleteOrder(order_ptr);
         this->_orders.erase(order_ptr->Id);
 
-        LevelUpdate update = {UpdateType::UPDATE, level_ptr, (level_ptr.get() == ((order_ptr->Side == OrderSide::BUY) ? best_bid().get() : best_ask().get()))};
+        LevelUpdate update = {UpdateType::UPDATE, level_ptr, (level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask()))};
 
         // Delete the empty price level
-        if (level_ptr->totalSize() == 0)
+        if (level_ptr->TotalVolume == 0)
         {
             DeleteLevel(order_ptr);
             update.Type = UpdateType::DELETE;
@@ -292,7 +426,6 @@ private:
     }
 };
 
-LevelPool OrderBook::_levels(1000000);
 
 class MarketHandler
 {
@@ -357,9 +490,9 @@ protected:
         ++_updates;
         --_order_books;
     }
-    void onAddLevel(const OrderBook &order_book, std::shared_ptr<PriceLevel> level, bool top) { ++_updates; }
-    void onUpdateLevel(const OrderBook &order_book, std::shared_ptr<PriceLevel> level, bool top) { ++_updates; }
-    void onDeleteLevel(const OrderBook &order_book, std::shared_ptr<PriceLevel> level, bool top) { ++_updates; }
+    void onAddLevel(const OrderBook &order_book, LevelNode* level, bool top) { ++_updates; }
+    void onUpdateLevel(const OrderBook &order_book, LevelNode* level, bool top) { ++_updates; }
+    void onDeleteLevel(const OrderBook &order_book, LevelNode* level, bool top) { ++_updates; }
     void onAddOrder(const Order &order)
     {
         ++_updates;
@@ -417,11 +550,11 @@ public:
     const Symbol *GetSymbol(uint16_t id) const noexcept { return &_symbols[id]; }
     const OrderBook *GetOrderBook(uint16_t id) const noexcept { return &_order_books[id]; }
 
-    std::shared_ptr <Order> GetOrderExcept(OrderBook* order_book, uint64_t id)
+    std::shared_ptr <OrderNode> GetOrderExcept(OrderBook* order_book, uint64_t id)
     {
         auto it = order_book->_orders.find(id);
         if (it == order_book->_orders.end()) {
-            std::shared_ptr <Order> ret = std::make_shared<Order>(id);
+            std::shared_ptr <OrderNode> ret = std::make_shared<OrderNode>(id);
             order_book->_orders[id] = ret;
             return ret;
         } else {
@@ -465,7 +598,7 @@ public:
         // Add the new order into the order book
         OrderBook *order_book_ptr = &_order_books[symbol];
         // Insert the order
-        std::shared_ptr<Order> order_ptr = GetOrderExcept(order_book_ptr, id);
+        std::shared_ptr<OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
         order_ptr->Symbol = symbol;
         order_ptr->Side = side;
         order_ptr->Quantity = quantity;
@@ -478,7 +611,7 @@ public:
     void ReduceOrder(uint64_t id, uint16_t symbol, uint32_t quantity)
     {
         OrderBook *order_book_ptr = &_order_books[symbol];
-        std::shared_ptr<Order> order_ptr = GetOrderExcept(order_book_ptr, id);
+        std::shared_ptr<OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
 
         // Calculate the minimal possible order quantity to reduce
         auto left_quantity = order_ptr->Quantity;
@@ -510,7 +643,7 @@ public:
     {
         OrderBook *order_book_ptr = &_order_books[symbol];
         // Get the order to modify
-        std::shared_ptr <Order> order_ptr = GetOrderExcept(order_book_ptr, id);
+        std::shared_ptr <OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
 
         // Delete the order from the order book
         UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
@@ -540,7 +673,7 @@ public:
         // Delete the old order from the order book
         OrderBook *order_book_ptr = &_order_books[symbol];
         // Get the order to replace
-        std::shared_ptr <Order> order_ptr = GetOrderExcept(order_book_ptr, id);
+        std::shared_ptr <OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
 
         UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
 
@@ -550,7 +683,7 @@ public:
         if (new_quantity > 0)
         {
             // Replace the order
-            std::shared_ptr <Order> new_order_ptr = GetOrderExcept(order_book_ptr, new_id);
+            std::shared_ptr <OrderNode> new_order_ptr = GetOrderExcept(order_book_ptr, new_id);
             new_order_ptr->Id = new_id;
             new_order_ptr->Symbol = order_ptr->Symbol;
             new_order_ptr->Side = order_ptr->Side;
@@ -570,7 +703,7 @@ public:
         // Delete the order from the order book
         OrderBook *order_book_ptr = &_order_books[symbol];
         // Get the order to delete
-        std::shared_ptr <Order> order_ptr = GetOrderExcept(order_book_ptr, id);
+        std::shared_ptr <OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
 
         UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
 
@@ -582,7 +715,7 @@ public:
     {
         OrderBook *order_book_ptr = &_order_books[symbol];
         // Get the order to execute
-        std::shared_ptr <Order> order_ptr = GetOrderExcept(order_book_ptr, id);
+        std::shared_ptr <OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
 
         // Calculate the minimal possible order quantity to execute
         quantity = std::min(quantity, order_ptr->Quantity);
@@ -614,7 +747,7 @@ public:
     {
         OrderBook *order_book_ptr = &_order_books[symbol];
         // Get the order to execute
-        std::shared_ptr <Order> order_ptr = GetOrderExcept(order_book_ptr, id);
+        std::shared_ptr <OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
 
         // Calculate the minimal possible order quantity to execute
         quantity = std::min(quantity, order_ptr->Quantity);

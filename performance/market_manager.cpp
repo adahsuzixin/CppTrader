@@ -53,7 +53,7 @@ protected:
         ++_updates;
         ++_symbols;
         _max_symbols = std::max(_symbols, _max_symbols);
-        std::cout << "Symbol: " << symbol.Name << std::endl;
+        // std::cout << "Symbol: " << symbol.Name << std::endl;
     }
     void onDeleteSymbol(const Symbol &symbol) override
     {
@@ -72,8 +72,8 @@ protected:
         {
             _max_order_book_levels = cur_max;
             _max_level_symbol = symbol_id;
-            std::cout << "Max level symbol: " << _max_level_symbol << " Max levels: " << _max_order_book_levels << std::endl;
-            order_book.dump();
+            // std::cout << "Max level symbol: " << _max_level_symbol << " Max levels: " << _max_order_book_levels << std::endl;
+            // order_book.dump();
         }
     }
     void onDeleteOrderBook(const OrderBook &order_book) override
@@ -155,7 +155,7 @@ protected:
     bool onMessage(const StockDirectoryMessage &message) override
     {
         ++_messages;
-        if (checkSymbolFilter(message.StockLocate)) return true;
+        // if (checkSymbolFilter(message.StockLocate)) return true;
         Symbol symbol(message.StockLocate, message.Stock);
         _market.AddSymbol(symbol);
         _market.AddOrderBook(symbol);
@@ -194,49 +194,49 @@ protected:
     bool onMessage(const AddOrderMessage &message) override
     {
         ++_messages;
-        if (checkSymbolFilter(message.StockLocate)) return true;
+        // if (checkSymbolFilter(message.StockLocate)) return true;
         _market.AddOrder(Order::Limit(message.OrderReferenceNumber, message.StockLocate, (message.BuySellIndicator == 'B') ? OrderSide::BUY : OrderSide::SELL, message.Price, message.Shares));
         return true;
     }
     bool onMessage(const AddOrderMPIDMessage &message) override
     {
         ++_messages;
-        if (checkSymbolFilter(message.StockLocate)) return true;
+        // if (checkSymbolFilter(message.StockLocate)) return true;
         _market.AddOrder(Order::Limit(message.OrderReferenceNumber, message.StockLocate, (message.BuySellIndicator == 'B') ? OrderSide::BUY : OrderSide::SELL, message.Price, message.Shares));
         return true;
     }
     bool onMessage(const OrderExecutedMessage &message) override
     {
         ++_messages;
-        if (checkSymbolFilter(message.StockLocate)) return true;
+        // if (checkSymbolFilter(message.StockLocate)) return true;
         _market.ExecuteOrder(message.OrderReferenceNumber, message.ExecutedShares);
         return true;
     }
     bool onMessage(const OrderExecutedWithPriceMessage &message) override
     {
         ++_messages;
-        if (checkSymbolFilter(message.StockLocate)) return true;
+        // if (checkSymbolFilter(message.StockLocate)) return true;
         _market.ExecuteOrder(message.OrderReferenceNumber, message.ExecutionPrice, message.ExecutedShares);
         return true;
     }
     bool onMessage(const OrderCancelMessage &message) override
     {
         ++_messages;
-        if (checkSymbolFilter(message.StockLocate)) return true;
+        // if (checkSymbolFilter(message.StockLocate)) return true;
         _market.ReduceOrder(message.OrderReferenceNumber, message.CanceledShares);
         return true;
     }
     bool onMessage(const OrderDeleteMessage &message) override
     {
         ++_messages;
-        if (checkSymbolFilter(message.StockLocate)) return true;
+        // if (checkSymbolFilter(message.StockLocate)) return true;
         _market.DeleteOrder(message.OrderReferenceNumber);
         return true;
     }
     bool onMessage(const OrderReplaceMessage &message) override
     {
         ++_messages;
-        if (checkSymbolFilter(message.StockLocate)) return true;
+        // if (checkSymbolFilter(message.StockLocate)) return true;
         _market.ReplaceOrder(message.OriginalOrderReferenceNumber, message.NewOrderReferenceNumber, message.Price, message.Shares);
         return true;
     }
