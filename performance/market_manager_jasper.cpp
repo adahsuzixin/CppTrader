@@ -80,46 +80,12 @@ enum class UpdateType : uint8_t
     DELETE
 };
 
-class PriceLevel {
-public:
-    void addOrder(std::shared_ptr<Order> order) {
-        this->m_totalSize += order->Quantity;
-        auto it = m_queue.insert(m_queue.end(), order);
-        order->Position = it;
-    }
-
-    void deleteOrder(std::shared_ptr<Order> order) {
-        this->m_totalSize -= order->Quantity;
-        m_queue.erase(order->Position);
-    }
-
-    void reduceOrder(std::shared_ptr<Order> order, uint32_t quantity) {
-        order->Quantity -= quantity;
-        this->m_totalSize -= quantity;
-        if (order->Quantity == 0)
-            m_queue.erase(order->Position);
-    }
-
-    int totalSize() {
-        return m_totalSize;
-    }
-
-    int count() {
-        return m_queue.size();
-    }
-
-private:
-    std::list<std::shared_ptr<Order>> m_queue;
-    // CppCommon::List<std::shared_ptr<Order>> m_queue;
-    int m_totalSize;
-};
-
 struct LevelNode;
 
 struct OrderNode : public Order, public CppCommon::List<OrderNode>::Node
 {
     LevelNode* Level;
-
+    OrderNode(uint64_t id) noexcept;
     OrderNode(const Order& order) noexcept;
     OrderNode(const OrderNode&) noexcept = default;
     OrderNode(OrderNode&&) noexcept = default;
@@ -131,6 +97,10 @@ struct OrderNode : public Order, public CppCommon::List<OrderNode>::Node
 };
 
 inline OrderNode::OrderNode(const Order& order) noexcept : Order(order), Level(nullptr)
+{
+}
+
+inline OrderNode::OrderNode(uint64_t id) noexcept : Order(id), Level(nullptr)
 {
 }
 
