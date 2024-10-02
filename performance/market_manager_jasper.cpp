@@ -19,6 +19,7 @@
 #include <list>
 #include "containers/bintree_avl.h"
 #include "containers/list.h"
+#include "memory/allocator_pool.h"
 
 using namespace CppCommon;
 using namespace CppTrader;
@@ -266,7 +267,10 @@ private:
     LevelNode* _best_ask;
     Levels _bids;
     Levels _asks;
-    std::unordered_map<uint64_t, std::shared_ptr<OrderNode>> _orders;
+    CppCommon::PoolMemoryManager<CppCommon::DefaultMemoryManager> _order_memory_manager;
+    CppCommon::PoolAllocator<OrderNode, CppCommon::DefaultMemoryManager> _order_pool;
+    typedef std::unordered_map<uint64_t, OrderNode*> Orders;
+    Orders _orders;
 
     std::pair<LevelNode*, UpdateType> FindLevel(std::shared_ptr <OrderNode> order_ptr)
     {
