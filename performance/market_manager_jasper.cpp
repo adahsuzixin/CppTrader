@@ -42,7 +42,6 @@ struct Order
     OrderSide Side;
     uint32_t Price;
     uint32_t Quantity;
-    std::list<std::shared_ptr<Order>>::iterator Position;
 };
 
 struct Symbol
@@ -189,18 +188,18 @@ struct LevelNode : public Level, public CppCommon::BinTreeAVL<LevelNode>::Node
     friend bool operator>=(const LevelNode& level1, const LevelNode& level2) noexcept
     { return level1.Price >= level2.Price; }
 
-    void addOrder(std::shared_ptr<OrderNode> order) {
+    void addOrder(OrderNode* order) {
         this->TotalVolume += order->Quantity;
         OrderList.push_back(*order);
     }
 
-    void reduceOrder(std::shared_ptr<OrderNode> order, uint32_t quantity) {
+    void reduceOrder(OrderNode* order, uint32_t quantity) {
         order->Quantity -= quantity;
         this->TotalVolume -= quantity;
         if (order->Quantity == 0)
             OrderList.pop_current(*order);
     }
-    void deleteOrder(std::shared_ptr<OrderNode> order) {
+    void deleteOrder(OrderNode* order) {
         this->TotalVolume -= order->Quantity;
         OrderList.pop_current(*order);
     }
@@ -242,7 +241,14 @@ public:
     typedef CppCommon::BinTreeAVL<LevelNode, std::less<LevelNode>> Levels;
     // typedef std::map<uint32_t, std::shared_ptr<PriceLevel>> Levels;
 
-    OrderBook() = default;
+    OrderBook() : _auxiliary_memory_manager(),
+                  _order_memory_manager(_auxiliary_memory_manager),
+                  _order_pool(_order_memory_manager),
+                  _level_memory_manager(_auxiliary_memory_manager),
+                  _level_pool(_level_memory_manager)
+    {
+        
+    }
     OrderBook(const OrderBook &) = delete;
     OrderBook(OrderBook &&) noexcept = default;
     ~OrderBook()
@@ -267,12 +273,20 @@ private:
     LevelNode* _best_ask;
     Levels _bids;
     Levels _asks;
+    // Auxiliary memory manager
+    CppCommon::DefaultMemoryManager _auxiliary_memory_manager;
+
+    // Order memory manager
     CppCommon::PoolMemoryManager<CppCommon::DefaultMemoryManager> _order_memory_manager;
     CppCommon::PoolAllocator<OrderNode, CppCommon::DefaultMemoryManager> _order_pool;
     typedef std::unordered_map<uint64_t, OrderNode*> Orders;
     Orders _orders;
 
-    std::pair<LevelNode*, UpdateType> FindLevel(std::shared_ptr <OrderNode> order_ptr)
+    // Price level memory manager
+    CppCommon::PoolMemoryManager<CppCommon::DefaultMemoryManager> _level_memory_manager;
+    CppCommon::PoolAllocator<LevelNode, CppCommon::DefaultMemoryManager> _level_pool;
+
+    std::pair<LevelNode*, UpdateType> FindLevel(OrderNode* order_ptr)
     {
         if (order_ptr->Side == OrderSide::BUY)
         {
@@ -282,7 +296,7 @@ private:
                 return std::make_pair(it.operator->(), UpdateType::UPDATE);
 
             // Create a new price level
-            LevelNode *level_ptr = new LevelNode(LevelType::BID, order_ptr->Price);
+            LevelNode *level_ptr = _level_pool.Create(LevelType::BID, order_ptr->Price);
             _bids.insert(*level_ptr);
 
             // Update the best bid price level
@@ -308,7 +322,7 @@ private:
         }
     }
 
-    LevelNode* GetLevel(std::shared_ptr <OrderNode> order_ptr)
+    LevelNode* GetLevel(OrderNode* order_ptr)
     {
         if (order_ptr->Side == OrderSide::BUY)
         {
@@ -323,7 +337,7 @@ private:
         }
     }
 
-    void DeleteLevel(std::shared_ptr <OrderNode> order_ptr)
+    void DeleteLevel(OrderNode* order_ptr)
     {
         LevelNode* level_ptr = order_ptr->Level;
         if (order_ptr->Side == OrderSide::BUY)
@@ -348,10 +362,10 @@ private:
             _asks.erase(Levels::iterator(&_asks, level_ptr));
             // std::cout << "after delete ask: " << _asks.size() << std::endl;
         }
-        delete level_ptr;
+        _level_pool.Release(level_ptr);
     }
 
-    LevelUpdate AddOrder(std::shared_ptr< OrderNode > order_ptr)
+    LevelUpdate AddOrder(OrderNode* order_ptr)
     {
         // Find the price level for the order
         std::pair<LevelNode*, UpdateType> find_result = FindLevel(order_ptr);
@@ -362,7 +376,7 @@ private:
         return LevelUpdate{find_result.second, level_ptr, level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask())};
     }
 
-    LevelUpdate ReduceOrder(std::shared_ptr <OrderNode> order_ptr, uint32_t quantity)
+    LevelUpdate ReduceOrder(OrderNode* order_ptr, uint32_t quantity)
     {
         // Find the price level for the order
         LevelNode* level_ptr = GetLevel(order_ptr);
@@ -384,7 +398,7 @@ private:
         return update;
     }
 
-    LevelUpdate DeleteOrder(std::shared_ptr <OrderNode> order_ptr)
+    LevelUpdate DeleteOrder(OrderNode* order_ptr)
     {
         // Find the price level for the order
         LevelNode* level_ptr = GetLevel(order_ptr);
@@ -515,11 +529,7 @@ private:
 class MarketManagerJapser
 {
 public:
-    explicit MarketManagerJapser(MarketHandler &market_handler) : _market_handler(market_handler)
-    {
-        _symbols.resize(10000);
-        _order_books.resize(10000);
-    }
+    MarketManagerJapser(MarketHandler &market_handler);
     MarketManagerJapser(const MarketManagerJapser &) = delete;
     MarketManagerJapser(MarketManagerJapser &&) = delete;
 
@@ -527,15 +537,15 @@ public:
     MarketManagerJapser &operator=(MarketManagerJapser &&) = delete;
 
     const Symbol *GetSymbol(uint16_t id) const noexcept { return &_symbols[id]; }
-    const OrderBook *GetOrderBook(uint16_t id) const noexcept { return &_order_books[id]; }
+    const OrderBook *GetOrderBook(uint16_t id) const noexcept { return _order_books[id]; }
 
-    std::shared_ptr <OrderNode> GetOrderExcept(OrderBook* order_book, uint64_t id)
+    OrderNode* GetOrderExcept(OrderBook* order_book, uint64_t id)
     {
         auto it = order_book->_orders.find(id);
         if (it == order_book->_orders.end()) {
-            std::shared_ptr <OrderNode> ret = std::make_shared<OrderNode>(id);
-            order_book->_orders[id] = ret;
-            return ret;
+            OrderNode* order_ptr = order_book->_order_pool.Create(id);
+            order_book->_orders[id] = order_ptr;
+            return order_ptr;
         } else {
             return it->second;
         }
@@ -560,24 +570,25 @@ public:
     void AddOrderBook(const Symbol &symbol)
     {
         // Insert the order book
-        _order_books[symbol.Id] = OrderBook();
+        OrderBook* order_book_ptr = _order_book_pool.Create();
+        _order_books[symbol.Id] = order_book_ptr;
 
         // Call the corresponding handler
-        _market_handler.onAddOrderBook(_order_books[symbol.Id]);
+        _market_handler.onAddOrderBook(*order_book_ptr);
     }
 
     void DeleteOrderBook(uint32_t id)
     {
         // Call the corresponding handler
-        _market_handler.onDeleteOrderBook(_order_books[id]);
+        _market_handler.onDeleteOrderBook(*_order_books[id]);
     }
 
     void AddOrder(uint64_t id, uint16_t symbol, OrderSide side, uint32_t price, uint32_t quantity)
     {
         // Add the new order into the order book
-        OrderBook *order_book_ptr = &_order_books[symbol];
+        OrderBook *order_book_ptr = _order_books[symbol];
         // Insert the order
-        std::shared_ptr<OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
         order_ptr->Symbol = symbol;
         order_ptr->Side = side;
         order_ptr->Quantity = quantity;
@@ -589,8 +600,8 @@ public:
 
     void ReduceOrder(uint64_t id, uint16_t symbol, uint32_t quantity)
     {
-        OrderBook *order_book_ptr = &_order_books[symbol];
-        std::shared_ptr<OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderBook *order_book_ptr = _order_books[symbol];
+        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
 
         // Calculate the minimal possible order quantity to reduce
         auto left_quantity = order_ptr->Quantity;
@@ -620,9 +631,9 @@ public:
 
     void ModifyOrder(uint64_t id, uint16_t symbol, int32_t new_price, uint32_t new_quantity)
     {
-        OrderBook *order_book_ptr = &_order_books[symbol];
+        OrderBook *order_book_ptr = _order_books[symbol];
         // Get the order to modify
-        std::shared_ptr <OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
 
         // Delete the order from the order book
         UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
@@ -650,9 +661,9 @@ public:
     void ReplaceOrder(uint64_t id, uint16_t symbol, uint64_t new_id, int32_t new_price, uint32_t new_quantity)
     {
         // Delete the old order from the order book
-        OrderBook *order_book_ptr = &_order_books[symbol];
+        OrderBook *order_book_ptr = _order_books[symbol];
         // Get the order to replace
-        std::shared_ptr <OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
 
         UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
 
@@ -662,7 +673,7 @@ public:
         if (new_quantity > 0)
         {
             // Replace the order
-            std::shared_ptr <OrderNode> new_order_ptr = GetOrderExcept(order_book_ptr, new_id);
+            OrderNode* new_order_ptr = GetOrderExcept(order_book_ptr, new_id);
             new_order_ptr->Id = new_id;
             new_order_ptr->Symbol = order_ptr->Symbol;
             new_order_ptr->Side = order_ptr->Side;
@@ -680,9 +691,9 @@ public:
     void DeleteOrder(uint64_t id, uint16_t symbol)
     {
         // Delete the order from the order book
-        OrderBook *order_book_ptr = &_order_books[symbol];
+        OrderBook *order_book_ptr = _order_books[symbol];
         // Get the order to delete
-        std::shared_ptr <OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
 
         UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
 
@@ -692,9 +703,9 @@ public:
 
     void ExecuteOrder(uint64_t id, uint16_t symbol, uint32_t quantity)
     {
-        OrderBook *order_book_ptr = &_order_books[symbol];
+        OrderBook *order_book_ptr = _order_books[symbol];
         // Get the order to execute
-        std::shared_ptr <OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
 
         // Calculate the minimal possible order quantity to execute
         quantity = std::min(quantity, order_ptr->Quantity);
@@ -724,9 +735,9 @@ public:
 
     void ExecuteOrder(uint64_t id, uint16_t symbol, int32_t price, uint32_t quantity)
     {
-        OrderBook *order_book_ptr = &_order_books[symbol];
+        OrderBook *order_book_ptr = _order_books[symbol];
         // Get the order to execute
-        std::shared_ptr <OrderNode> order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
 
         // Calculate the minimal possible order quantity to execute
         quantity = std::min(quantity, order_ptr->Quantity);
@@ -758,7 +769,12 @@ private:
     MarketHandler &_market_handler;
 
     std::vector<Symbol> _symbols;
-    std::vector<OrderBook> _order_books;
+    // Auxiliary memory manager
+    CppCommon::DefaultMemoryManager _auxiliary_memory_manager;
+
+    CppCommon::PoolMemoryManager<CppCommon::DefaultMemoryManager> _order_book_memory_manager;
+    CppCommon::PoolAllocator<OrderBook, CppCommon::DefaultMemoryManager> _order_book_pool;
+    std::vector<OrderBook*> _order_books;
 
     void UpdateLevel(const OrderBook &order_book, const LevelUpdate &update, int symbol_id = 0) const
     {
@@ -779,6 +795,16 @@ private:
         _market_handler.onUpdateOrderBook(order_book, update.Top, symbol_id);
     }
 };
+
+inline MarketManagerJapser::MarketManagerJapser(MarketHandler& market_handler)
+    : _market_handler(market_handler),
+      _auxiliary_memory_manager(),
+      _order_book_memory_manager(_auxiliary_memory_manager),
+      _order_book_pool(_order_book_memory_manager)
+{
+    _symbols.resize(10000);
+    _order_books.resize(10000);
+}
 
 class MyITCHHandler : public ITCHHandler
 {
