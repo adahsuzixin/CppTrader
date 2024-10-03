@@ -311,7 +311,7 @@ private:
                 return std::make_pair(it.operator->(), UpdateType::UPDATE);
 
             // Create a new price level
-            LevelNode *level_ptr = new LevelNode(LevelType::ASK, order_ptr->Price);
+            LevelNode *level_ptr = _level_pool.Create(LevelType::ASK, order_ptr->Price);
             _asks.insert(*level_ptr);
 
             // Update the best bid price level

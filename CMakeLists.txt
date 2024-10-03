@@ -74,8 +74,8 @@ if(NOT CPPTRADER_MODULE)
       set_target_properties(${BENCHMARK_TARGET} PROPERTIES COMPILE_FLAGS "${PEDANTIC_COMPILE_FLAGS}" FOLDER "performance")
       
       # 添加调试信息
-      # set_target_properties(${BENCHMARK_TARGET} PROPERTIES 
-      #     COMPILE_FLAGS "${PEDANTIC_COMPILE_FLAGS} -g"
+      # set_target_properties(${BENCHMARK_TARGET} PROPERTIES
+      #     COMPILE_FLAGS "${PEDANTIC_COMPILE_FLAGS} -g -O0"
       #     FOLDER "performance"
       # )
       
