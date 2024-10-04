@@ -241,13 +241,9 @@ public:
     typedef CppCommon::BinTreeAVL<LevelNode, std::less<LevelNode>> Levels;
     // typedef std::map<uint32_t, std::shared_ptr<PriceLevel>> Levels;
 
-    OrderBook() : _auxiliary_memory_manager(),
-                  _order_memory_manager(_auxiliary_memory_manager),
-                  _order_pool(_order_memory_manager),
-                  _level_memory_manager(_auxiliary_memory_manager),
-                  _level_pool(_level_memory_manager)
+    OrderBook(MarketManagerJapser& manager) :
+        _manager(manager)
     {
-        
     }
     OrderBook(const OrderBook &) = delete;
     OrderBook(OrderBook &&) noexcept = default;
@@ -269,22 +265,13 @@ public:
     //! Get the order book best ask price level
     const LevelNode* best_ask() const noexcept { return _best_ask; }
 private:
+    MarketManagerJapser& _manager;
     LevelNode* _best_bid;
     LevelNode* _best_ask;
     Levels _bids;
     Levels _asks;
-    // Auxiliary memory manager
-    CppCommon::DefaultMemoryManager _auxiliary_memory_manager;
-
-    // Order memory manager
-    CppCommon::PoolMemoryManager<CppCommon::DefaultMemoryManager> _order_memory_manager;
-    CppCommon::PoolAllocator<OrderNode, CppCommon::DefaultMemoryManager> _order_pool;
     typedef std::unordered_map<uint64_t, OrderNode*> Orders;
     Orders _orders;
-
-    // Price level memory manager
-    CppCommon::PoolMemoryManager<CppCommon::DefaultMemoryManager> _level_memory_manager;
-    CppCommon::PoolAllocator<LevelNode, CppCommon::DefaultMemoryManager> _level_pool;
 
     std::pair<LevelNode*, UpdateType> FindLevel(OrderNode* order_ptr)
     {
@@ -296,7 +283,7 @@ private:
                 return std::make_pair(it.operator->(), UpdateType::UPDATE);
 
             // Create a new price level
-            LevelNode *level_ptr = _level_pool.Create(LevelType::BID, order_ptr->Price);
+            LevelNode *level_ptr = _manager._level_pool.Create(LevelType::BID, order_ptr->Price);
             _bids.insert(*level_ptr);
 
             // Update the best bid price level
@@ -311,7 +298,7 @@ private:
                 return std::make_pair(it.operator->(), UpdateType::UPDATE);
 
             // Create a new price level
-            LevelNode *level_ptr = _level_pool.Create(LevelType::ASK, order_ptr->Price);
+            LevelNode *level_ptr = _manager._level_pool.Create(LevelType::ASK, order_ptr->Price);
             _asks.insert(*level_ptr);
 
             // Update the best bid price level
@@ -362,7 +349,7 @@ private:
             _asks.erase(Levels::iterator(&_asks, level_ptr));
             // std::cout << "after delete ask: " << _asks.size() << std::endl;
         }
-        _level_pool.Release(level_ptr);
+        _manager._level_pool.Release(level_ptr);
     }
 
     LevelUpdate AddOrder(OrderNode* order_ptr)
@@ -528,6 +515,7 @@ private:
 
 class MarketManagerJapser
 {
+    friend class OrderBook;
 public:
     MarketManagerJapser(MarketHandler &market_handler);
     MarketManagerJapser(const MarketManagerJapser &) = delete;
@@ -543,7 +531,7 @@ public:
     {
         auto it = order_book->_orders.find(id);
         if (it == order_book->_orders.end()) {
-            OrderNode* order_ptr = order_book->_order_pool.Create(id);
+            OrderNode* order_ptr = _order_pool.Create(id);
             order_book->_orders[id] = order_ptr;
             return order_ptr;
         } else {
@@ -776,6 +764,14 @@ private:
     CppCommon::PoolAllocator<OrderBook, CppCommon::DefaultMemoryManager> _order_book_pool;
     std::vector<OrderBook*> _order_books;
 
+    // Orders
+    CppCommon::PoolMemoryManager<CppCommon::DefaultMemoryManager> _order_memory_manager;
+    CppCommon::PoolAllocator<OrderNode, CppCommon::DefaultMemoryManager> _order_pool;
+
+    // Price level memory manager
+    CppCommon::PoolMemoryManager<CppCommon::DefaultMemoryManager> _level_memory_manager;
+    CppCommon::PoolAllocator<LevelNode, CppCommon::DefaultMemoryManager> _level_pool;
+
     void UpdateLevel(const OrderBook &order_book, const LevelUpdate &update, int symbol_id = 0) const
     {
         switch (update.Type)
@@ -800,7 +796,11 @@ inline MarketManagerJapser::MarketManagerJapser(MarketHandler& market_handler)
     : _market_handler(market_handler),
       _auxiliary_memory_manager(),
       _order_book_memory_manager(_auxiliary_memory_manager),
-      _order_book_pool(_order_book_memory_manager)
+      _order_book_pool(_order_book_memory_manager),
+      _order_memory_manager(_auxiliary_memory_manager),
+      _order_pool(_order_memory_manager),
+      _level_memory_manager(_auxiliary_memory_manager),
+      _level_pool(_level_memory_manager)
 {
     _symbols.resize(10000);
     _order_books.resize(10000);
