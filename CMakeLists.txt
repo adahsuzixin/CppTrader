@@ -84,6 +84,15 @@ if(NOT CPPTRADER_MODULE)
       list(APPEND INSTALL_TARGETS_PDB ${BENCHMARK_TARGET})
   endforeach()
 
+  # jasper
+  file(GLOB JASPER_HEADER_FILES "jasper/*.h")
+  file(GLOB JASPER_INLINE_FILES "jasper/*.inl")
+  file(GLOB JASPER_SOURCE_FILES "jasper/*.cpp")
+  add_executable(cpptrader-performance-market_manager_jasper ${JASPER_HEADER_FILES} ${JASPER_INLINE_FILES} ${JASPER_SOURCE_FILES})
+  target_link_libraries(cpptrader-performance-market_manager_jasper ${LINKLIBS} cppbenchmark)
+  list(APPEND INSTALL_TARGETS cpptrader-performance-market_manager_jasper)
+  list(APPEND INSTALL_TARGETS_PDB cpptrader-performance-market_manager_jasper)
+
   # Tests
   file(GLOB TESTS_HEADER_FILES "tests/*.h")
   file(GLOB TESTS_INLINE_FILES "tests/*.inl")
