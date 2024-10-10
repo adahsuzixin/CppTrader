@@ -137,12 +137,12 @@ public:
     const Symbol *GetSymbol(uint16_t id) const noexcept { return &_symbols[id]; }
     const OrderBook *GetOrderBook(uint16_t id) const noexcept { return _order_books[id]; }
 
-    OrderNode* GetOrderExcept(OrderBook* order_book, uint64_t id)
+    OrderNode* GetOrderExcept(uint64_t id)
     {
-        auto it = order_book->_orders.find(id);
-        if (it == order_book->_orders.end()) {
+        auto it = _orders.find(id);
+        if (it == _orders.end()) {
             OrderNode* order_ptr = _order_pool.Create(id);
-            order_book->_orders[id] = order_ptr;
+            _orders[id] = order_ptr;
             return order_ptr;
         } else {
             return it->second;
@@ -186,7 +186,7 @@ public:
         // Add the new order into the order book
         OrderBook *order_book_ptr = _order_books[symbol];
         // Insert the order
-        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderNode* order_ptr = GetOrderExcept(id);
         order_ptr->Symbol = symbol;
         order_ptr->Side = side;
         order_ptr->Quantity = quantity;
@@ -199,7 +199,7 @@ public:
     void ReduceOrder(uint64_t id, uint16_t symbol, uint32_t quantity)
     {
         OrderBook *order_book_ptr = _order_books[symbol];
-        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderNode* order_ptr = GetOrderExcept(id);
 
         // Calculate the minimal possible order quantity to reduce
         auto left_quantity = order_ptr->Quantity;
@@ -231,7 +231,7 @@ public:
     {
         OrderBook *order_book_ptr = _order_books[symbol];
         // Get the order to modify
-        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderNode* order_ptr = GetOrderExcept(id);
 
         // Delete the order from the order book
         UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
@@ -261,7 +261,7 @@ public:
         // Delete the old order from the order book
         OrderBook *order_book_ptr = _order_books[symbol];
         // Get the order to replace
-        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderNode* order_ptr = GetOrderExcept(id);
 
         UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
 
@@ -271,7 +271,7 @@ public:
         if (new_quantity > 0)
         {
             // Replace the order
-            OrderNode* new_order_ptr = GetOrderExcept(order_book_ptr, new_id);
+            OrderNode* new_order_ptr = GetOrderExcept(new_id);
             new_order_ptr->Id = new_id;
             new_order_ptr->Symbol = order_ptr->Symbol;
             new_order_ptr->Side = order_ptr->Side;
@@ -291,7 +291,7 @@ public:
         // Delete the order from the order book
         OrderBook *order_book_ptr = _order_books[symbol];
         // Get the order to delete
-        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderNode* order_ptr = GetOrderExcept(id);
 
         UpdateLevel(*order_book_ptr, order_book_ptr->DeleteOrder(order_ptr));
 
@@ -303,7 +303,7 @@ public:
     {
         OrderBook *order_book_ptr = _order_books[symbol];
         // Get the order to execute
-        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderNode* order_ptr = GetOrderExcept(id);
 
         // Calculate the minimal possible order quantity to execute
         quantity = std::min(quantity, order_ptr->Quantity);
@@ -335,7 +335,7 @@ public:
     {
         OrderBook *order_book_ptr = _order_books[symbol];
         // Get the order to execute
-        OrderNode* order_ptr = GetOrderExcept(order_book_ptr, id);
+        OrderNode* order_ptr = GetOrderExcept(id);
 
         // Calculate the minimal possible order quantity to execute
         quantity = std::min(quantity, order_ptr->Quantity);
@@ -377,6 +377,8 @@ private:
     // Orders
     CppCommon::PoolMemoryManager<CppCommon::DefaultMemoryManager> _order_memory_manager;
     CppCommon::PoolAllocator<OrderNode, CppCommon::DefaultMemoryManager> _order_pool;
+    typedef std::unordered_map<uint64_t, OrderNode*> Orders;
+    Orders _orders;
 
     // Price level memory manager
     CppCommon::PoolMemoryManager<CppCommon::DefaultMemoryManager> _level_memory_manager;
