@@ -393,6 +393,7 @@ private:
         if (order_ptr->Quantity == 0)
         {
             this->_orders.erase(order_ptr->Id);
+            this->_order_pool.Release(order_ptr);
         }
 
         return update;
@@ -403,7 +404,6 @@ private:
         // Find the price level for the order
         LevelNode* level_ptr = GetLevel(order_ptr);
         level_ptr->deleteOrder(order_ptr);
-        this->_orders.erase(order_ptr->Id);
 
         LevelUpdate update = {UpdateType::UPDATE, level_ptr, (level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask()))};
 
@@ -414,7 +414,7 @@ private:
             update.Type = UpdateType::DELETE;
         }
         this->_orders.erase(order_ptr->Id);
-
+        this->_order_pool.Release(order_ptr);
         return update;
     }
 };
