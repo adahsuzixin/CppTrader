@@ -3,6 +3,51 @@
 #include <iostream>
 #include <utility>
 
+LevelUpdate OrderBook::ReduceOrder(OrderNode* order_ptr, uint32_t quantity)
+{
+    // Find the price level for the order
+    LevelNode* level_ptr = GetLevel(order_ptr);
+    level_ptr->reduceOrder(order_ptr, quantity);
+
+    LevelUpdate update = {UpdateType::UPDATE, level_ptr, level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask())};
+
+    // Delete the empty price level
+    if (level_ptr->TotalVolume == 0)
+    {
+        DeleteLevel(order_ptr);
+        update.Type = UpdateType::DELETE;
+    }
+    if (order_ptr->Quantity == 0)
+    {
+        this->_orders.erase(order_ptr->Id);
+        this->_manager._order_pool.Release(order_ptr);
+    }
+
+    return update;
+}
+
+LevelUpdate OrderBook::DeleteOrder(OrderNode* order_ptr)
+{
+    // Find the price level for the order
+    LevelNode* level_ptr = GetLevel(order_ptr);
+    level_ptr->deleteOrder(order_ptr);
+
+    LevelUpdate update = {UpdateType::UPDATE, level_ptr, (level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask()))};
+
+    // Delete the empty price level
+    if (level_ptr->TotalVolume == 0)
+    {
+        DeleteLevel(order_ptr);
+        update.Type = UpdateType::DELETE;
+    }
+
+    this->_orders.erase(order_ptr->Id);
+    this->_manager._order_pool.Release(order_ptr);
+
+    return update;
+}
+
+
 std::pair<LevelNode*, UpdateType> OrderBook::FindLevel(OrderNode* order_ptr)
 {
     if (order_ptr->Side == OrderSide::BUY)

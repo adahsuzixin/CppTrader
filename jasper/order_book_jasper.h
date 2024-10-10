@@ -283,47 +283,8 @@ private:
         return LevelUpdate{find_result.second, level_ptr, level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask())};
     }
 
-    LevelUpdate ReduceOrder(OrderNode* order_ptr, uint32_t quantity)
-    {
-        // Find the price level for the order
-        LevelNode* level_ptr = GetLevel(order_ptr);
-        level_ptr->reduceOrder(order_ptr, quantity);
-
-        LevelUpdate update = {UpdateType::UPDATE, level_ptr, level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask())};
-
-        // Delete the empty price level
-        if (level_ptr->TotalVolume == 0)
-        {
-            DeleteLevel(order_ptr);
-            update.Type = UpdateType::DELETE;
-        }
-        if (order_ptr->Quantity == 0)
-        {
-            this->_orders.erase(order_ptr->Id);
-        }
-
-        return update;
-    }
-
-    LevelUpdate DeleteOrder(OrderNode* order_ptr)
-    {
-        // Find the price level for the order
-        LevelNode* level_ptr = GetLevel(order_ptr);
-        level_ptr->deleteOrder(order_ptr);
-        this->_orders.erase(order_ptr->Id);
-
-        LevelUpdate update = {UpdateType::UPDATE, level_ptr, (level_ptr == ((order_ptr->Side == OrderSide::BUY) ? best_bid() : best_ask()))};
-
-        // Delete the empty price level
-        if (level_ptr->TotalVolume == 0)
-        {
-            DeleteLevel(order_ptr);
-            update.Type = UpdateType::DELETE;
-        }
-        this->_orders.erase(order_ptr->Id);
-
-        return update;
-    }
+    LevelUpdate ReduceOrder(OrderNode* order_ptr, uint32_t quantity);
+    LevelUpdate DeleteOrder(OrderNode* order_ptr);
 };
 
 #endif
