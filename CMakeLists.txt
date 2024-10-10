@@ -89,20 +89,9 @@ if(NOT CPPTRADER_MODULE)
   file(GLOB JASPER_INLINE_FILES "jasper/*.inl")
   file(GLOB JASPER_SOURCE_FILES "jasper/*.cpp")
   add_executable(cpptrader-performance-market_manager_jasper ${JASPER_HEADER_FILES} ${JASPER_INLINE_FILES} ${JASPER_SOURCE_FILES})
-  set_target_properties(cpptrader-performance-market_manager_jasper PROPERTIES COMPILE_FLAGS "${PEDANTIC_COMPILE_FLAGS}" FOLDER "jasper`")
   target_link_libraries(cpptrader-performance-market_manager_jasper ${LINKLIBS} cppbenchmark)
   list(APPEND INSTALL_TARGETS cpptrader-performance-market_manager_jasper)
   list(APPEND INSTALL_TARGETS_PDB cpptrader-performance-market_manager_jasper)
-
-  # init
-  file(GLOB INIT_HEADER_FILES "init/*.h")
-  file(GLOB INIT_INLINE_FILES "init/*.inl")
-  file(GLOB INIT_SOURCE_FILES "init/*.cpp")
-  add_executable(cpptrader-performance-market_manager_init ${INIT_HEADER_FILES} ${INIT_INLINE_FILES} ${INIT_SOURCE_FILES})
-  set_target_properties(cpptrader-performance-market_manager_init PROPERTIES COMPILE_FLAGS "${PEDANTIC_COMPILE_FLAGS}" FOLDER "init`")
-  target_link_libraries(cpptrader-performance-market_manager_init ${LINKLIBS} cppbenchmark)
-  list(APPEND INSTALL_TARGETS cpptrader-performance-market_manager_init)
-  list(APPEND INSTALL_TARGETS_PDB cpptrader-performance-market_manager_init)
 
   # Tests
   file(GLOB TESTS_HEADER_FILES "tests/*.h")
