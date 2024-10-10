@@ -20,6 +20,7 @@
 #include "containers/bintree_avl.h"
 #include "containers/list.h"
 #include "memory/allocator_pool.h"
+#include "containers/hashmap.h"
 
 using namespace CppCommon;
 using namespace CppTrader;
@@ -225,6 +226,45 @@ inline Level::Level(LevelType type, uint64_t price) noexcept
 {
 }
 
+class FastHash
+{
+public:
+    FastHash() = default;
+    FastHash(const FastHash&) = default;
+    FastHash(FastHash&&) noexcept = default;
+    ~FastHash() = default;
+
+    FastHash& operator=(const FastHash&) = default;
+    FastHash& operator=(FastHash&&) noexcept = default;
+
+    //! Calculate hash value
+    size_t operator()(uint64_t value) const noexcept {
+        value ^= value >> 33;
+        value *= 0xFF51AFD7ED558CCD;
+        value ^= value >> 33;
+        value *= 0xC4CEB9FE1A85EC53;
+        value ^= value >> 33;
+        return value;
+    }
+
+    //! Parse fixed size string value and return its 64-bit integer equivalent
+    /*!
+        \param str - Fixed size string (8 bytes length)
+        \return 64-bit integer value
+    */
+    static uint64_t Parse(const char str[8]) noexcept {
+        uint64_t value = 0;
+        value |= ((uint64_t)str[0]);
+        value |= ((uint64_t)str[1]) << 8;
+        value |= ((uint64_t)str[2]) << 16;
+        value |= ((uint64_t)str[3]) << 24;
+        value |= ((uint64_t)str[4]) << 32;
+        value |= ((uint64_t)str[5]) << 40;
+        value |= ((uint64_t)str[6]) << 48;
+        value |= ((uint64_t)str[7]) << 56;
+        return value;
+    }
+};
 
 struct LevelUpdate
 {
@@ -279,7 +319,7 @@ private:
     // Order memory manager
     CppCommon::PoolMemoryManager<CppCommon::DefaultMemoryManager> _order_memory_manager;
     CppCommon::PoolAllocator<OrderNode, CppCommon::DefaultMemoryManager> _order_pool;
-    typedef std::unordered_map<uint64_t, OrderNode*> Orders;
+    typedef CppCommon::HashMap<uint64_t, OrderNode*, FastHash> Orders;
     Orders _orders;
 
     // Price level memory manager
